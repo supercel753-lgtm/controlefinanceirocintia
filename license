@@ -1,0 +1,146 @@
+# LICENÇA PROPRIETÁRIA DE USO RESTRITO DE SOFTWARE
+
+**Copyright © 2026 Cintia Beatriz da Silva Bock. Todos os direitos reservados.**
+
+## 1. TITULARIDADE
+
+O código-fonte, código compilado, estrutura, arquitetura, banco de dados, interfaces, scripts, algoritmos, documentação, arquivos de configuração, recursos gráficos e demais componentes integrantes deste software, projeto ou repositório são de propriedade exclusiva de **Cintia Beatriz da Silva Bock**, doravante denominado **TITULAR**.
+
+Nenhum direito de propriedade intelectual é transferido ao usuário em razão do acesso, visualização, recebimento ou utilização autorizada deste software.
+
+## 2. AUSÊNCIA DE AUTORIZAÇÃO IMPLÍCITA
+
+O simples acesso, recebimento, visualização, download, armazenamento ou posse de uma cópia deste código não concede qualquer licença ou autorização para sua utilização.
+
+Somente poderão utilizar este software as pessoas físicas ou jurídicas que tenham recebido **autorização prévia, expressa e por escrito do TITULAR**.
+
+Qualquer utilização realizada sem essa autorização será considerada **uso não autorizado**.
+
+## 3. USOS EXPRESSAMENTE PROIBIDOS
+
+Salvo mediante autorização prévia e expressa, por escrito, do TITULAR, é expressamente proibido:
+
+a) executar ou utilizar o software, total ou parcialmente;
+
+b) copiar, reproduzir ou duplicar o código-fonte ou qualquer parte dele;
+
+c) modificar, adaptar, transformar, traduzir, corrigir ou alterar o código;
+
+d) criar softwares, sistemas, aplicações, bibliotecas, módulos ou outros trabalhos derivados;
+
+e) distribuir, publicar, compartilhar, disponibilizar ou transmitir o código a terceiros;
+
+f) realizar upload do código em repositórios públicos ou privados pertencentes a terceiros;
+
+g) comercializar, vender, alugar, sublicenciar, ceder, emprestar ou transferir o software;
+
+h) incorporar o código, total ou parcialmente, em outros sistemas, produtos, serviços ou projetos;
+
+i) utilizar o código ou qualquer de seus componentes para prestação de serviços comerciais;
+
+j) remover, ocultar ou alterar avisos de autoria, copyright, propriedade intelectual ou identificação do TITULAR;
+
+k) divulgar o código-fonte, credenciais, estruturas internas, documentação técnica ou informações relacionadas ao funcionamento do sistema;
+
+l) realizar engenharia reversa, descompilação, desmontagem, tentativa de obtenção do código-fonte ou procedimento equivalente, salvo nas hipóteses em que tal restrição seja vedada pela legislação aplicável;
+
+m) utilizar técnicas automatizadas de coleta, extração, scraping ou reprodução do conteúdo do código;
+
+n) utilizar o código, sua estrutura, lógica, documentação ou qualquer de seus componentes para treinamento, ajuste, alimentação, avaliação ou desenvolvimento de sistemas de inteligência artificial, modelos de linguagem, modelos de aprendizado de máquina ou bancos de dados destinados a essas finalidades;
+
+o) utilizar partes do código em respostas, bibliotecas, exemplos, templates, tutoriais ou outros materiais destinados a terceiros;
+
+p) permitir que terceiros não autorizados tenham acesso direto ou indireto ao código.
+
+## 4. AUTORIZAÇÃO DE USO
+
+Qualquer autorização concedida pelo TITULAR deverá especificar, quando aplicável:
+
+- a pessoa ou empresa autorizada;
+- o projeto ou sistema autorizado;
+- a finalidade permitida;
+- o período da autorização;
+- os ambientes em que o software poderá ser utilizado;
+- as permissões de modificação, reprodução ou distribuição eventualmente concedidas.
+
+A autorização será considerada pessoal, limitada, revogável, intransferível e não sublicenciável, salvo disposição expressa em contrário.
+
+Nenhuma autorização poderá ser presumida.
+
+## 5. CONFIDENCIALIDADE
+
+Quando o código for disponibilizado de forma privada, seu conteúdo deverá ser tratado como informação confidencial.
+
+O usuário autorizado deverá adotar medidas razoáveis de segurança para impedir o acesso, reprodução, divulgação ou utilização por pessoas não autorizadas.
+
+O compartilhamento de senhas, arquivos, repositórios, backups, cópias do código ou qualquer outro meio que possibilite o acesso por terceiro não autorizado constitui violação desta licença.
+
+## 6. CÓPIAS E BACKUPS
+
+Cópias de segurança somente poderão ser realizadas por usuários expressamente autorizados e exclusivamente quando necessárias para a finalidade autorizada.
+
+Todas as cópias deverão permanecer submetidas aos mesmos termos desta licença.
+
+## 7. PROPRIEDADE DAS MODIFICAÇÕES
+
+Nenhuma pessoa está autorizada a modificar o código sem autorização expressa do TITULAR.
+
+Quando modificações forem expressamente autorizadas, os direitos sobre tais alterações serão definidos no respectivo instrumento de autorização ou contrato.
+
+A autorização para modificar o software não implica autorização para distribuir, comercializar, sublicenciar ou publicar a versão modificada.
+
+## 8. REVOGAÇÃO E ENCERRAMENTO
+
+O TITULAR poderá revogar uma autorização de uso nos termos estabelecidos no documento, contrato ou instrumento que a concedeu, observada a legislação aplicável.
+
+Encerrada ou revogada a autorização, o usuário deverá cessar imediatamente todo uso não mais autorizado do software e, quando aplicável, eliminar as cópias sob sua posse ou controle, ressalvadas aquelas cuja manutenção seja exigida por lei.
+
+O descumprimento de qualquer disposição desta licença poderá resultar na extinção imediata da autorização concedida, sem prejuízo das medidas legais cabíveis.
+
+## 9. VIOLAÇÃO DOS DIREITOS
+
+A utilização, reprodução, distribuição, modificação, comercialização ou disponibilização deste software sem autorização poderá constituir violação dos direitos de propriedade intelectual do TITULAR.
+
+O TITULAR reserva-se o direito de adotar as medidas administrativas, extrajudiciais e judiciais cabíveis para:
+
+- interromper o uso não autorizado;
+- exigir a remoção ou destruição de cópias não autorizadas;
+- impedir a distribuição ou comercialização indevida;
+- buscar reparação por eventuais perdas e danos;
+- exercer os demais direitos assegurados pela legislação aplicável.
+
+## 10. AUSÊNCIA DE LICENÇA OPEN SOURCE
+
+Este software **NÃO É SOFTWARE DE CÓDIGO ABERTO (OPEN SOURCE)**.
+
+A disponibilização ou exposição do código-fonte, inclusive em repositórios, servidores, serviços de hospedagem, arquivos compartilhados ou plataformas de desenvolvimento, não significa que o TITULAR tenha renunciado aos seus direitos ou autorizado sua utilização.
+
+Nenhuma licença MIT, GPL, Apache, BSD, Creative Commons ou outra licença pública é aplicável a este código, salvo se expressamente indicada pelo TITULAR para componente específico.
+
+## 11. COMPONENTES DE TERCEIROS
+
+Bibliotecas, frameworks, dependências e demais componentes pertencentes a terceiros permanecem submetidos às respectivas licenças de seus titulares.
+
+Esta licença aplica-se exclusivamente aos componentes sobre os quais o TITULAR detenha os respectivos direitos.
+
+## 12. PROTEÇÃO LEGAL
+
+Este software é protegido pela legislação aplicável de propriedade intelectual e direitos autorais, incluindo, quando aplicável, a **Lei Federal nº 9.609, de 19 de fevereiro de 1998**, relativa à proteção da propriedade intelectual de programas de computador, e a **Lei Federal nº 9.610, de 19 de fevereiro de 1998**, relativa aos direitos autorais.
+
+## 13. LEGISLAÇÃO E FORO
+
+Esta licença será interpretada de acordo com as leis da República Federativa do Brasil.
+
+Fica eleito o foro da comarca de **Viamão, Rio Grande do Sul**, observadas as regras legais de competência aplicáveis, para dirimir eventuais controvérsias relacionadas a esta licença.
+
+---
+
+## AVISO DE PROPRIEDADE
+
+**CÓDIGO PROPRIETÁRIO — USO NÃO AUTORIZADO PROIBIDO**
+
+Este código e todos os seus componentes são protegidos por direitos autorais.
+
+Nenhuma pessoa ou organização está autorizada a copiar, utilizar, modificar, distribuir, publicar, sublicenciar, comercializar ou incorporar este código em outro projeto sem autorização prévia e expressa, por escrito, do TITULAR.
+
+**Copyright © 2026 Cintia Beatriz da Silva Bock. Todos os direitos reservados.**
