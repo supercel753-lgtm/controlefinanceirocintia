@@ -886,3 +886,380 @@ td { color: #27364c; }
   .form-footer { flex-direction: column; align-items: stretch; }
   .table-summary { gap: 10px; flex-wrap: wrap; }
 }
+
+/* ==========================================
+   ACOMPANHAMENTO DE PAGAMENTOS PENDENTES
+   ========================================== */
+
+.pend-page {
+  max-width: 1140px;
+  margin: 28px auto 60px;
+  padding: 0 18px;
+}
+
+.pend-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 25px;
+}
+
+.pend-heading h1 {
+  color: #116fb3;
+  font-size: clamp(23px, 3vw, 30px);
+  margin: 7px 0;
+}
+
+.pend-heading p {
+  color: #76869a;
+  font-size: 13px;
+  margin: 0;
+}
+
+.pend-eyebrow {
+  color: #8796a8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+}
+
+.pend-top-buttons {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.pend-panel {
+  background: linear-gradient(
+    110deg,
+    #fffaf6 0%,
+    #ffffff 65%
+  );
+  border: 1px solid #d9e1ea;
+  border-left: 4px solid #ff710c;
+  border-radius: 14px;
+  padding: 27px;
+  box-shadow: 0 2px 9px #20375010;
+}
+
+.pend-title {
+  font-weight: 700;
+  font-size: 18px;
+  color: #f26b0b;
+}
+
+.pend-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  margin: 12px 0 22px 40px;
+  font-size: 14px;
+  color: #435267;
+}
+
+.pend-summary strong {
+  color: #df5609;
+}
+
+.pend-filters {
+  display: grid;
+  grid-template-columns: 1.4fr .8fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.pend-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  color: #66768a;
+  font-weight: 700;
+}
+
+.pend-filters input,
+.pend-filters select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d8e1ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #394b62;
+  padding: 11px;
+}
+
+.pend-cards {
+  display: grid;
+  gap: 14px;
+}
+
+.pend-card {
+  border: 1px solid #dce4ec;
+  background: white;
+  border-radius: 15px;
+  padding: 18px;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.pend-card:hover {
+  border-color: #bcd6e8;
+  box-shadow: 0 4px 15px #25425c12;
+}
+
+.pend-card-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 85px;
+}
+
+.pend-card-copy {
+  min-width: 0;
+}
+
+.pend-card-copy h3 {
+  font-size: 17px;
+  color: #122641;
+  margin: 3px 0 11px;
+  overflow-wrap: anywhere;
+}
+
+.pend-card-meta {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #50627a;
+  margin: 7px 0;
+}
+
+.pend-card-meta b {
+  font-weight: 650;
+  color: #3e536c;
+}
+
+.pend-card-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 135px;
+  gap: 6px;
+}
+
+.pend-state {
+  background: #f3f5f8;
+  border: 1px solid #d1d8e2;
+  border-radius: 25px;
+  padding: 6px 13px;
+  color: #29415c;
+  font-size: 12px;
+  max-width: 200px;
+  overflow-wrap: anywhere;
+}
+
+.pend-state.completed {
+  background: #e4f7eb;
+  border-color: #bce8ce;
+  color: #12813c;
+}
+
+.pend-card-value small {
+  font-size: 12px;
+  color: #7f8b9a;
+  margin-top: 5px;
+}
+
+.pend-card-value strong {
+  font-size: 19px;
+  color: #142339;
+}
+
+.pend-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 15px;
+}
+
+.pend-card-actions button {
+  padding: 9px 13px;
+  border-radius: 8px;
+  border: 1px solid #dbe3ed;
+  background: white;
+  color: #53647a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pend-card-actions button:hover {
+  filter: brightness(.96);
+}
+
+.pend-card-actions button[data-pend-action="delete"] {
+  color: #d03c42;
+  border-color: #f1d4d6;
+}
+
+.pend-card-actions .pend-complete-btn {
+  background: #13a346;
+  border-color: #13a346;
+  color: white;
+  font-size: 13px;
+}
+
+.pend-card-actions .pend-reopen {
+  background: #eef5fd;
+  border-color: #c7e0f3;
+  color: #1769a5;
+}
+
+.pend-empty {
+  padding: 28px;
+  text-align: center;
+  color: #8996a7;
+  background: white;
+  border: 1px dashed #d9e1eb;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* GERENCIAMENTO DE CONTRATOS */
+
+.pend-manager {
+  background: white;
+  border: 1px solid #dce4ed;
+  border-radius: 10px;
+  margin-top: 20px;
+  padding: 18px;
+}
+
+.pend-manager summary {
+  cursor: pointer;
+  color: #22699d;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+#pendManageList {
+  margin-top: 17px;
+}
+
+.pend-manager-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid #edf1f5;
+  padding: 11px 0;
+  font-size: 12px;
+  color: #485d72;
+}
+
+.pend-manager-row span {
+  overflow-wrap: anywhere;
+}
+
+.pend-danger {
+  border: 1px solid #fad0d4;
+  border-radius: 7px;
+  background: #fff1f2;
+  color: #bb303b;
+  font-size: 12px;
+  padding: 9px 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pend-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.pend-modal-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* CELULAR E TABLET */
+
+@media (max-width: 800px) {
+  .pend-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pend-filters label:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .pend-page {
+    padding: 0 12px;
+    margin-top: 15px;
+  }
+
+  .pend-panel {
+    padding: 16px;
+  }
+
+  .pend-title {
+    font-size: 16px;
+  }
+
+  .pend-summary {
+    margin-left: 0;
+  }
+
+  .pend-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .pend-filters label:first-child {
+    grid-column: auto;
+  }
+
+  .pend-card {
+    padding: 14px;
+  }
+
+  .pend-card-main {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pend-card-value {
+    align-items: flex-start;
+  }
+
+  .pend-card-actions {
+    justify-content: flex-start;
+  }
+
+  .pend-card-actions button {
+    flex-grow: 1;
+  }
+
+  .pend-top-buttons {
+    width: 100%;
+  }
+
+  .pend-top-buttons button {
+    flex-grow: 1;
+  }
+
+  .pend-manager-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pend-modal-dates {
+    grid-template-columns: 1fr;
+  }
+}
