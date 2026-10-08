@@ -1,0 +1,405 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b6fbe">
+  <title>SUREG-PA | Painel de Gestão</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+
+  <header class="top-nav">
+    <div class="brand">
+      <span class="brand-square">S</span>
+      <div>
+        <strong>Painel SUREG-PA</strong>
+        <small>Sistema demonstrativo de gestão</small>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button type="button" class="mode-tab active" data-mode="financeiro">Financeiro</button>
+      <button type="button" class="mode-tab" data-mode="frota">Gestão de Frotas</button>
+      <button type="button" class="btn btn-ghost btn-small" id="demoBtn">Carregar exemplo</button>
+    </div>
+  </header>
+
+  <div class="notice" role="status">
+    <strong>Versão demonstrativa:</strong>
+    os registros ficam somente neste navegador. Não há integração com sistemas internos,
+    banco de dados ou GPS. Não utilize dados institucionais sensíveis.
+  </div>
+
+  <!-- CONTROLE FINANCEIRO -->
+  <section id="financeiro" class="mode-view">
+    <main class="finance-wrap">
+      <div class="finance-hero">
+        <h1>Controle Financeiro Sureg-PA</h1>
+        <div class="sgb-mark" aria-label="Identidade visual ilustrativa">
+          <strong>SGB</strong>
+          <span>SERVIÇO GEOLÓGICO<br>DO BRASIL</span>
+        </div>
+      </div>
+
+      <div class="finance-sheet">
+        <section class="panel search-panel">
+          <h2>Consultar Histórico de Pagamentos</h2>
+          <p class="helper">Filtre o histórico de pagamentos por empresa na tabela abaixo.</p>
+          <div class="field-grid two">
+            <label>Buscar por CNPJ
+              <input id="searchCnpj" type="search" placeholder="Digite o CNPJ...">
+            </label>
+            <label>Buscar por Nome da Empresa
+              <input id="searchName" type="search" placeholder="Digite o nome...">
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Dados do Contrato</h2>
+            <div class="button-group">
+              <button class="btn btn-blue" id="newContractBtn" type="button">＋ Novo Contrato</button>
+              <button class="btn btn-red" id="deleteContractBtn" type="button">Excluir Contrato</button>
+            </div>
+          </div>
+
+          <label>Selecionar contrato existente
+            <select id="contractPicker">
+              <option value="">Novo contrato / formulário vazio</option>
+            </select>
+          </label>
+
+          <form id="contractForm" autocomplete="off">
+            <div class="field-grid one">
+              <div>
+                <div class="label-line">
+                  <label for="supplier">Favorecido / CNPJ *</label>
+                  <button type="button" id="addSupplierBtn" class="text-button">＋ Cadastrar empresa</button>
+                </div>
+                <select id="supplier" name="supplier" required>
+                  <option value="">Selecione uma empresa</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field-grid two">
+              <label>Unidade
+                <input name="unidade" placeholder="Ex.: SUREG-PA">
+              </label>
+
+              <label>Tipo
+                <select name="tipo">
+                  <option value="">Selecione um tipo</option>
+                  <option>Serviço contínuo</option>
+                  <option>Serviço não contínuo</option>
+                  <option>Aquisição</option>
+                  <option>Outro</option>
+                </select>
+              </label>
+
+              <label>Nº Processo de Contrato *
+                <input name="processo" required placeholder="Ex.: 48086.000000/2026-00">
+              </label>
+
+              <label>Número do Contrato
+                <input name="numero" placeholder="Ex.: 012/2026">
+              </label>
+
+              <label class="wide">Modalidade de Contratação
+                <select name="modalidade">
+                  <option value="">Selecione uma modalidade</option>
+                  <option>Pregão</option>
+                  <option>Dispensa</option>
+                  <option>Inexigibilidade</option>
+                  <option>Concorrência</option>
+                  <option>Adesão a ata</option>
+                  <option>Outra</option>
+                </select>
+              </label>
+
+              <label>Gestor do Contrato
+                <input name="gestor" placeholder="Nome do gestor">
+              </label>
+
+              <label>Fiscal Adm do Contrato
+                <input name="fiscalAdm" placeholder="Nome do fiscal administrativo">
+              </label>
+
+              <label>Fiscal Técnico
+                <input name="fiscalTecnico" placeholder="Nome do fiscal técnico">
+              </label>
+
+              <label>Suplente
+                <input name="suplente" placeholder="Nome do suplente">
+              </label>
+
+              <label>Modalidade de Garantia
+                <input name="garantia" placeholder="Ex.: Seguro-garantia, caução">
+              </label>
+              <span></span>
+
+              <label>Vigência Inicial *
+                <input name="vigenciaInicial" type="date" required>
+              </label>
+
+              <label>Vigência Final *
+                <input name="vigenciaFinal" type="date" required>
+              </label>
+
+              <label class="wide">Objeto (Descrição Detalhada)
+                <textarea name="objeto" rows="3" placeholder="Descreva detalhadamente o objeto do contrato..."></textarea>
+              </label>
+
+              <label class="wide">Observações
+                <textarea name="observacoes" rows="2" placeholder="Observações gerais sobre o contrato..."></textarea>
+              </label>
+
+              <label>Tipo de Custo
+                <select name="tipoCusto">
+                  <option>Fixo</option>
+                  <option>Variável</option>
+                </select>
+              </label>
+
+              <label>ND (Natureza de Despesa)
+                <input name="nd" placeholder="Ex.: 339039">
+              </label>
+
+              <label>Valor Global do Contrato (R$)
+                <input name="valorGlobal" type="number" min="0" step="0.01" placeholder="0,00">
+              </label>
+
+              <label>Custo por Posto/Serviço Mensal (R$)
+                <input name="custoPosto" type="number" min="0" step="0.01" placeholder="0,00">
+              </label>
+            </div>
+
+            <hr>
+            <h3>Cálculo de Serviços com Pessoas (CCT)</h3>
+
+            <div class="field-grid two">
+              <label>Categoria de Serviço
+                <select name="categoria">
+                  <option value="">Selecione uma categoria</option>
+                  <option>Apoio administrativo</option>
+                  <option>Limpeza</option>
+                  <option>Vigilância</option>
+                  <option>Motorista</option>
+                  <option>Manutenção</option>
+                  <option>Outra</option>
+                </select>
+              </label>
+
+              <label>Quantidade de Postos
+                <input name="postos" type="number" min="0" step="1" value="0">
+              </label>
+
+              <label>Salário Base CCT (Mensal) (R$)
+                <input name="salario" type="number" min="0" step="0.01" placeholder="0,00">
+              </label>
+
+              <label>Encargos Sociais e Trabalhistas (%)
+                <input name="encargos" type="number" min="0" step="0.01" placeholder="Ex.: 95">
+                <small>Percentual estimado informado pelo usuário.</small>
+              </label>
+
+              <label>Estimativa de Materiais (Mensal) (R$)
+                <input name="materiais" type="number" min="0" step="0.01" placeholder="0,00">
+              </label>
+
+              <label>Valor Total Mensal Calculado
+                <input id="totalMensal" readonly value="R$ 0,00">
+                <small>(Salário × (1 + encargos/100) × postos) + materiais</small>
+              </label>
+            </div>
+
+            <hr>
+
+            <div class="field-grid two">
+              <label>Gasto Mensal 2025 (PAT) (R$)
+                <input name="gastoMensal2025" type="number" min="0" step="0.01">
+              </label>
+
+              <label>Gasto Anual 2025 (PAT) (R$)
+                <input name="gastoAnual2025" type="number" min="0" step="0.01">
+              </label>
+
+              <label>Total Ano 2025 (Gasto) (R$)
+                <input name="totalGasto2025" type="number" min="0" step="0.01">
+              </label>
+              <span></span>
+
+              <label>PLOA 2026 (R$)
+                <input name="ploa2026" type="number" min="0" step="0.01">
+              </label>
+
+              <label>PLOA 2026 (Variação %)
+                <input id="ploaVariacao" readonly placeholder="Calculado a partir do gasto anual 2025">
+              </label>
+
+              <label>Qtd. Atual
+                <input name="qtdAtual" type="number" min="0" step="1" value="0">
+              </label>
+
+              <label>Qtd. Análise
+                <input name="qtdAnalise" type="number" min="0" step="1" value="0">
+              </label>
+            </div>
+
+            <div class="form-footer">
+              <span id="formStatus" aria-live="polite">Preencha os dados e clique em Salvar contrato.</span>
+              <button type="submit" class="btn btn-blue">Salvar contrato</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Histórico de Pagamentos</h2>
+            <button id="addPaymentBtn" class="btn btn-blue" type="button">＋ Registrar pagamento</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Empresa / CNPJ</th>
+                  <th>Contrato</th>
+                  <th>Descrição</th>
+                  <th>Valor</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="paymentsTable"></tbody>
+            </table>
+          </div>
+          <div class="table-summary">
+            <strong id="paymentCount">0 pagamentos</strong>
+            <strong id="paymentTotal">Total: R$ 0,00</strong>
+          </div>
+        </section>
+      </div>
+    </main>
+  </section>
+
+  <!-- GESTÃO DE FROTAS -->
+  <section id="frota" class="mode-view" hidden>
+    <div class="fleet-layout">
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <div class="mini-icon">▦</div>
+          <strong>SIST. GESTÃO DE FROTAS</strong>
+        </div>
+
+        <div class="sidebar-group">OPERACIONAL</div>
+        <button class="fleet-nav active" data-page="dashboard">▦ <span>Dashboard</span></button>
+        <button class="fleet-nav" data-page="painel">☷ <span>Painel da Frota</span></button>
+        <button class="fleet-nav" data-page="mapa">⌖ <span>Mapa em Tempo Real</span></button>
+        <button class="fleet-nav" data-page="agenda">▣ <span>Agenda</span></button>
+
+        <div class="sidebar-group">PROCESSOS</div>
+        <button class="fleet-nav" data-page="solicitacoes">☰ <span>Solicitações</span></button>
+        <button class="fleet-nav" data-page="checklists">☑ <span>Checklists</span></button>
+        <button class="fleet-nav" data-page="manutencoes">⚒ <span>Plano de Manutenção</span></button>
+        <button class="fleet-nav" data-page="ordens">▤ <span>Ordens de Serviço</span></button>
+        <button class="fleet-nav" data-page="infracoes">⚠ <span>Infrações</span></button>
+
+        <div class="sidebar-group">CADASTROS</div>
+        <button class="fleet-nav" data-page="veiculos">♧ <span>Veículos</span></button>
+        <button class="fleet-nav" data-page="motoristas">♙ <span>Motoristas</span></button>
+        <button class="fleet-nav" data-page="templates">▧ <span>Templates Manut.</span></button>
+        <button class="fleet-nav" data-page="relatorios">▥ <span>Relatórios</span></button>
+        <button class="fleet-nav" data-page="configuracoes">⚙ <span>Configurações</span></button>
+      </aside>
+
+      <main class="fleet-main">
+        <div class="fleet-heading">
+          <div>
+            <span class="eyebrow">OPERAÇÕES / SUREG-PA</span>
+            <h1 id="fleetTitle">Dashboard</h1>
+          </div>
+          <button type="button" class="btn btn-ghost" id="fleetExportBtn">⇩ Exportar CSV</button>
+        </div>
+
+        <div class="status-strip">
+          <span><i class="dot"></i> Sistema demonstrativo</span>
+          <span id="fleetStatus">Frota: 0 veículos cadastrados</span>
+          <span class="api-off">GPS: não conectado</span>
+          <span id="syncInfo">Armazenamento local</span>
+        </div>
+
+        <div id="fleetContent"></div>
+      </main>
+    </div>
+  </section>
+
+  <!-- JANELAS MODAIS -->
+  <dialog id="supplierDialog" class="modal">
+    <form method="dialog" id="supplierForm">
+      <div class="section-heading">
+        <h2>Cadastrar empresa</h2>
+        <button type="button" class="icon-btn" data-close="supplierDialog">✕</button>
+      </div>
+      <label>Razão social *
+        <input name="nome" required maxlength="150">
+      </label>
+      <label>CNPJ (14 dígitos) *
+        <input name="cnpj" required inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+      </label>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" type="button" data-close="supplierDialog">Cancelar</button>
+        <button class="btn btn-blue" type="submit">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="paymentDialog" class="modal">
+    <form method="dialog" id="paymentForm">
+      <div class="section-heading">
+        <h2>Novo pagamento</h2>
+        <button type="button" class="icon-btn" data-close="paymentDialog">✕</button>
+      </div>
+      <label>Contrato *
+        <select name="contractId" id="paymentContract" required></select>
+      </label>
+      <label>Data *
+        <input name="data" type="date" required>
+      </label>
+      <label>Valor (R$) *
+        <input name="valor" type="number" min="0.01" step="0.01" required>
+      </label>
+      <label>Descrição
+        <input name="descricao" placeholder="Ex.: Competência setembro/2026">
+      </label>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" type="button" data-close="paymentDialog">Cancelar</button>
+        <button class="btn btn-blue" type="submit">Registrar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="recordDialog" class="modal">
+    <form method="dialog" id="recordForm">
+      <div class="section-heading">
+        <h2 id="recordTitle">Novo registro</h2>
+        <button type="button" class="icon-btn" data-close="recordDialog">✕</button>
+      </div>
+      <div id="recordFields"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" type="button" data-close="recordDialog">Cancelar</button>
+        <button class="btn btn-blue" type="submit">Salvar registro</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <footer class="site-footer">
+    Protótipo visual para testes. Não representa sistema oficial em produção.
+  </footer>
+
+</body>
+</html>
