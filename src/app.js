@@ -1485,3 +1485,850 @@ renderContracts();
 renderPayments();
 calculateContract();
 renderFleet();
+
+/* ==========================================
+   ABA DE ACOMPANHAMENTO DE PAGAMENTOS
+   Acrescentar ao final de src/app.js
+   ========================================== */
+
+(() => {
+  if (document.getElementById("pendencias")) return;
+
+  const q = (selector, root = document) =>
+    root.querySelector(selector);
+
+  const moneyBR = (value) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    }).format(Number(value) || 0);
+
+  const safe = (value) =>
+    String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[c]);
+
+  const items = () => {
+    if (!Array.isArray(state.pendencias)) {
+      state.pendencias = [];
+    }
+    return state.pendencias;
+  };
+
+  const getContract = (id) =>
+    state.contracts.find((c) => c.id === id);
+
+  const getSupplier = (id) =>
+    state.suppliers.find((s) => s.id === id);
+
+  const description = (c) => {
+    const s = getSupplier(c.supplier);
+    return `${s?.nome || "Empresa não identificada"} — ${c.numero || c.processo}`;
+  };
+
+  // CRIAR ABA NO MENU PRINCIPAL
+
+  const tab = document.createElement("button");
+  tab.type = "button";
+  tab.className = "mode-tab";
+  tab.dataset.mode = "pendencias";
+  tab.textContent = "Pagamentos Pendentes";
+
+  q("#demoBtn").before(tab);
+
+  // CRIAR INTERFACE DE ACOMPANHAMENTO
+
+  const view = document.createElement("section");
+  view.id = "pendencias";
+  view.className = "mode-view";
+  view.hidden = true;
+
+  view.innerHTML = `
+    <main class="pend-page">
+
+      <div class="pend-heading">
+        <div>
+          <span class="pend-eyebrow">
+            CONTROLE FINANCEIRO SUREG-PA
+          </span>
+          <h1>Acompanhamento de Pagamentos</h1>
+          <p>
+            Controle contratos e competências pendentes
+            ou concluídas.
+          </p>
+        </div>
+
+        <div class="pend-top-buttons">
+          <button type="button" id="pendAddContract"
+            class="btn btn-ghost">
+            ＋ Novo contrato
+          </button>
+
+          <button type="button" id="pendAddPayment"
+            class="btn btn-blue">
+            ＋ Nova pendência
+          </button>
+        </div>
+      </div>
+
+      <section class="pend-panel">
+
+        <div class="pend-title">
+          ⚠ &nbsp;◷ &nbsp;Acompanhamento de Pagamentos Pendentes
+        </div>
+
+        <div class="pend-summary">
+          <span id="pendSummaryCount">
+            0 pagamento(s) pendente(s)
+          </span>
+          <strong id="pendSummaryTotal">
+            Total: R$ 0,00
+          </strong>
+        </div>
+
+        <div class="pend-filters">
+          <label>
+            Pesquisar
+            <input type="search" id="pendSearch"
+              placeholder="Empresa, CNPJ, número ou processo...">
+          </label>
+
+          <label>
+            Exibir
+            <select id="pendStatusFilter">
+              <option value="aberto">
+                Somente pendentes
+              </option>
+              <option value="concluido">
+                Concluídos
+              </option>
+              <option value="todos">
+                Todos
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Contrato
+            <select id="pendContractFilter">
+              <option value="">
+                Todos os contratos
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div id="pendCards" class="pend-cards"></div>
+
+      </section>
+
+      <details class="pend-manager">
+        <summary>
+          Gerenciar / excluir contratos cadastrados
+        </summary>
+        <div id="pendManageList"></div>
+      </details>
+
+    </main>
+  `;
+
+  q("#financeiro").after(view);
+
+  // CRIAR JANELAS PARA CADASTROS
+
+  document.body.insertAdjacentHTML("beforeend", `
+    <dialog id="pendContractDialog"
+      class="modal pend-modal">
+
+      <form id="pendContractForm">
+
+        <div class="section-heading">
+          <h2>Novo contrato</h2>
+          <button type="button" class="icon-btn"
+            data-pend-close>✕</button>
+        </div>
+
+        <label>
+          Empresa / razão social *
+          <input name="empresa" maxlength="150" required>
+        </label>
+
+        <label>
+          CNPJ (14 dígitos) *
+          <input name="cnpj" maxlength="18"
+            placeholder="00.000.000/0000-00" required>
+        </label>
+
+        <label>
+          Número do contrato *
+          <input name="numero"
+            placeholder="17/2024" required>
+        </label>
+
+        <label>
+          Nº do processo de contratação *
+          <input name="processo" required>
+        </label>
+
+        <div class="pend-modal-dates">
+          <label>
+            Vigência inicial *
+            <input type="date" name="inicio" required>
+          </label>
+
+          <label>
+            Vigência final *
+            <input type="date" name="fim" required>
+          </label>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost"
+            data-pend-close>Cancelar</button>
+          <button type="submit" class="btn btn-blue">
+            Salvar contrato
+          </button>
+        </div>
+
+      </form>
+    </dialog>
+
+    <dialog id="pendEntryDialog"
+      class="modal pend-modal">
+
+      <form id="pendEntryForm">
+
+        <div class="section-heading">
+          <h2 id="pendEntryTitle">Nova pendência</h2>
+          <button type="button" class="icon-btn"
+            data-pend-close>✕</button>
+        </div>
+
+        <label>
+          Contrato *
+          <select name="contractId"
+            id="pendEntryContract" required></select>
+        </label>
+
+        <label>
+          Mês de competência *
+          <input type="month"
+            name="competencia" required>
+        </label>
+
+        <label>
+          Valor líquido (R$) *
+          <input type="number" name="valor"
+            min="0" step="0.01"
+            value="0" required>
+        </label>
+
+        <label>
+          Referência / identificação
+          <input name="referencia"
+            placeholder="Ex.: Aberto ou 45879">
+        </label>
+
+        <label>
+          Situação
+          <select name="status">
+            <option value="aberto">Aberto</option>
+            <option value="concluido">Concluído</option>
+          </select>
+        </label>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost"
+            data-pend-close>Cancelar</button>
+          <button type="submit" class="btn btn-blue">
+            Salvar
+          </button>
+        </div>
+
+      </form>
+    </dialog>
+  `);
+
+  const contractDialog = q("#pendContractDialog");
+  const entryDialog = q("#pendEntryDialog");
+  const entryForm = q("#pendEntryForm");
+
+  // PREENCHER LISTAS DE CONTRATOS
+
+  function contractOptions(select, defaultLabel) {
+    const saved = select.value;
+
+    select.replaceChildren(
+      new Option(defaultLabel, "")
+    );
+
+    state.contracts.forEach((contract) => {
+      select.add(
+        new Option(
+          description(contract),
+          contract.id
+        )
+      );
+    });
+
+    if (state.contracts.some((c) => c.id === saved)) {
+      select.value = saved;
+    }
+  }
+
+  // ATUALIZAR O PAINEL
+
+  function draw() {
+    const valid = new Set(
+      state.contracts.map((c) => c.id)
+    );
+
+    const original = items().length;
+
+    state.pendencias = items().filter(
+      (p) => valid.has(p.contractId)
+    );
+
+    if (original !== state.pendencias.length) {
+      saveState();
+    }
+
+    const filterSelect = q("#pendContractFilter");
+
+    contractOptions(
+      filterSelect,
+      "Todos os contratos"
+    );
+
+    const open = items().filter(
+      (p) => p.status !== "concluido"
+    );
+
+    q("#pendSummaryCount").textContent =
+      `${open.length} pagamento(s) pendente(s)`;
+
+    const total = open.reduce(
+      (sum, p) => sum + Number(p.valor || 0),
+      0
+    );
+
+    q("#pendSummaryTotal").textContent =
+      `Total: ${moneyBR(total)}`;
+
+    const search = q("#pendSearch")
+      .value.trim()
+      .toLocaleLowerCase("pt-BR");
+
+    const status = q("#pendStatusFilter").value;
+    const contractId = filterSelect.value;
+
+    const selected = items()
+      .filter((p) => {
+        const contract = getContract(p.contractId);
+        const supplier = getSupplier(contract?.supplier);
+
+        const haystack = [
+          supplier?.nome,
+          supplier?.cnpj,
+          contract?.numero,
+          contract?.processo,
+          p.competencia,
+          p.referencia
+        ].join(" ").toLocaleLowerCase("pt-BR");
+
+        return (
+          (!search || haystack.includes(search)) &&
+          (!contractId || p.contractId === contractId) &&
+          (
+            status === "todos" ||
+            (
+              status === "concluido"
+                ? p.status === "concluido"
+                : p.status !== "concluido"
+            )
+          )
+        );
+      })
+      .sort(
+        (a, b) =>
+          b.competencia.localeCompare(a.competencia)
+      );
+
+    // CARTÕES DE PAGAMENTO
+
+    q("#pendCards").innerHTML = selected.length
+      ? selected.map((p) => {
+          const c = getContract(p.contractId);
+          const s = getSupplier(c?.supplier);
+          const done = p.status === "concluido";
+
+          return `
+            <article class="pend-card"
+              data-pend-id="${safe(p.id)}">
+
+              <div class="pend-card-main">
+
+                <div class="pend-card-copy">
+
+                  <h3>
+                    ${safe(s?.nome || "Empresa não identificada")}
+                  </h3>
+
+                  <div class="pend-card-meta">
+                    <span>
+                      Contrato:
+                      <b>${safe(c?.numero || "—")}</b>
+                    </span>
+
+                    <span>
+                      CNPJ:
+                      <b>${safe(s?.cnpj || "—")}</b>
+                    </span>
+
+                    <span>
+                      Mês:
+                      <b>${safe(p.competencia)}</b>
+                    </span>
+                  </div>
+
+                  <div class="pend-card-meta">
+                    Processo:
+                    <b>${safe(c?.processo || "—")}</b>
+                  </div>
+
+                </div>
+
+                <div class="pend-card-value">
+
+                  <span class="pend-state
+                    ${done ? "completed" : ""}">
+                    ${safe(
+                      done
+                        ? "Concluído"
+                        : (p.referencia || "Aberto")
+                    )}
+                  </span>
+
+                  <small>Valor Líquido</small>
+
+                  <strong>
+                    ${moneyBR(p.valor)}
+                  </strong>
+
+                </div>
+              </div>
+
+              <div class="pend-card-actions">
+
+                <button type="button"
+                  data-pend-action="edit">
+                  Editar
+                </button>
+
+                <button type="button"
+                  data-pend-action="delete">
+                  Excluir pendência
+                </button>
+
+                <button type="button"
+                  data-pend-action="toggle"
+                  class="pend-complete-btn
+                    ${done ? "pend-reopen" : ""}">
+
+                  ${done
+                    ? "↶ Reabrir"
+                    : "✓ Marcar como Concluído"}
+
+                </button>
+
+              </div>
+            </article>
+          `;
+        }).join("")
+      : `
+        <div class="pend-empty">
+          Nenhum registro encontrado.
+          Clique em <b>Nova pendência</b>
+          para adicionar.
+        </div>
+      `;
+
+    // GERENCIAMENTO DE CONTRATOS
+
+    q("#pendManageList").innerHTML =
+      state.contracts.length
+        ? state.contracts.map((c) => `
+            <div class="pend-manager-row">
+              <span>
+                ${safe(description(c))}
+              </span>
+
+              <button type="button"
+                class="pend-danger"
+                data-pend-delete-contract="${safe(c.id)}">
+                Excluir contrato
+              </button>
+            </div>
+          `).join("")
+        : `
+          <p class="pend-empty">
+            Nenhum contrato cadastrado.
+          </p>
+        `;
+  }
+
+  // JANELA DE CADASTRO E EDIÇÃO DE PENDÊNCIA
+
+  function openEntry(
+    id = null,
+    selectedContract = ""
+  ) {
+    if (!state.contracts.length) {
+      notify("Cadastre primeiro um contrato.");
+      return;
+    }
+
+    entryForm.reset();
+    entryForm.dataset.editId = id || "";
+
+    contractOptions(
+      q("#pendEntryContract"),
+      "Selecione um contrato"
+    );
+
+    const p = items().find((x) => x.id === id);
+
+    entryForm.elements
+      .namedItem("contractId").value =
+        p?.contractId || selectedContract || "";
+
+    entryForm.elements
+      .namedItem("competencia").value =
+        p?.competencia || localDate().slice(0, 7);
+
+    entryForm.elements
+      .namedItem("valor").value =
+        p?.valor ?? 0;
+
+    entryForm.elements
+      .namedItem("referencia").value =
+        p?.referencia || "";
+
+    entryForm.elements
+      .namedItem("status").value =
+        p?.status || "aberto";
+
+    q("#pendEntryTitle").textContent =
+      p ? "Editar pendência" : "Nova pendência";
+
+    entryDialog.showModal();
+  }
+
+  // BOTÕES PRINCIPAIS
+
+  q("#pendAddContract").addEventListener(
+    "click",
+    () => {
+      q("#pendContractForm").reset();
+      contractDialog.showModal();
+    }
+  );
+
+  q("#pendAddPayment").addEventListener(
+    "click",
+    () => openEntry()
+  );
+
+  // CADASTRAR NOVO CONTRATO
+
+  q("#pendContractForm").addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+
+      const form = event.currentTarget;
+
+      if (!form.reportValidity()) return;
+
+      const data = Object.fromEntries(
+        new FormData(form).entries()
+      );
+
+      const digits = data.cnpj.replace(/\D/g, "");
+
+      if (digits.length !== 14) {
+        notify("O CNPJ deve ter 14 dígitos.");
+        return;
+      }
+
+      if (data.fim < data.inicio) {
+        notify(
+          "A vigência final deve ser posterior à inicial."
+        );
+        return;
+      }
+
+      const formattedCNPJ = digits.replace(
+        /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+        "$1.$2.$3/$4-$5"
+      );
+
+      let supplier = state.suppliers.find(
+        (s) =>
+          s.cnpj.replace(/\D/g, "") === digits
+      );
+
+      if (!supplier) {
+        supplier = {
+          id: uid(),
+          nome: data.empresa.trim(),
+          cnpj: formattedCNPJ
+        };
+
+        state.suppliers.push(supplier);
+      }
+
+      const contract = {
+        id: uid(),
+        supplier: supplier.id,
+        unidade: "SUREG-PA",
+        tipo: "Serviço contínuo",
+        processo: data.processo.trim(),
+        numero: data.numero.trim(),
+        vigenciaInicial: data.inicio,
+        vigenciaFinal: data.fim
+      };
+
+      state.contracts.push(contract);
+
+      saveState();
+
+      renderSuppliers();
+      renderContracts();
+      draw();
+
+      contractDialog.close();
+
+      notify(
+        "Contrato cadastrado. Agora inclua uma competência."
+      );
+
+      openEntry(null, contract.id);
+    }
+  );
+
+  // SALVAR PENDÊNCIA
+
+  entryForm.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+
+      if (!entryForm.reportValidity()) return;
+
+      const data = Object.fromEntries(
+        new FormData(entryForm).entries()
+      );
+
+      if (!getContract(data.contractId)) {
+        notify("Selecione um contrato válido.");
+        return;
+      }
+
+      const id =
+        entryForm.dataset.editId || uid();
+
+      const entry = {
+        id,
+        contractId: data.contractId,
+        competencia: data.competencia,
+        valor: Math.max(
+          0,
+          Number(data.valor) || 0
+        ),
+        referencia: data.referencia.trim(),
+        status: data.status
+      };
+
+      const index = items().findIndex(
+        (p) => p.id === id
+      );
+
+      if (index >= 0) {
+        state.pendencias[index] = entry;
+      } else {
+        items().push(entry);
+      }
+
+      saveState();
+      entryDialog.close();
+      draw();
+
+      notify("Acompanhamento salvo.");
+    }
+  );
+
+  // AÇÕES DOS CARTÕES
+
+  q("#pendCards").addEventListener(
+    "click",
+    (event) => {
+      const button = event.target.closest(
+        "[data-pend-action]"
+      );
+
+      if (!button) return;
+
+      const id = button
+        .closest("[data-pend-id]")
+        ?.dataset.pendId;
+
+      const p = items().find(
+        (r) => r.id === id
+      );
+
+      if (!p) return;
+
+      const action = button.dataset.pendAction;
+
+      if (action === "edit") {
+        return openEntry(id);
+      }
+
+      if (action === "delete") {
+        if (
+          !confirm(
+            "Excluir esta competência do acompanhamento?"
+          )
+        ) {
+          return;
+        }
+
+        state.pendencias = items().filter(
+          (r) => r.id !== id
+        );
+      }
+
+      if (action === "toggle") {
+        p.status =
+          p.status === "concluido"
+            ? "aberto"
+            : "concluido";
+      }
+
+      saveState();
+      draw();
+    }
+  );
+
+  // EXCLUSÃO DEFINITIVA DE CONTRATOS
+
+  q("#pendManageList").addEventListener(
+    "click",
+    (event) => {
+      const button = event.target.closest(
+        "[data-pend-delete-contract]"
+      );
+
+      if (!button) return;
+
+      const id = button.dataset.pendDeleteContract;
+      const contract = getContract(id);
+
+      if (!contract) return;
+
+      const linkedPayments = state.payments.filter(
+        (p) => p.contractId === id
+      ).length;
+
+      const linkedPending = items().filter(
+        (p) => p.contractId === id
+      ).length;
+
+      const warning =
+        `EXCLUIR DEFINITIVAMENTE ${description(contract)}?\n\n` +
+        `Também serão excluídos ${linkedPending} acompanhamento(s) ` +
+        `e ${linkedPayments} pagamento(s) do histórico financeiro.\n` +
+        "Esta ação não pode ser desfeita.";
+
+      if (!confirm(warning)) return;
+
+      state.contracts = state.contracts.filter(
+        (c) => c.id !== id
+      );
+
+      state.payments = state.payments.filter(
+        (p) => p.contractId !== id
+      );
+
+      state.pendencias = items().filter(
+        (p) => p.contractId !== id
+      );
+
+      saveState();
+
+      renderContracts("");
+      resetContract();
+      renderPayments();
+      draw();
+
+      notify(
+        "Contrato e registros vinculados excluídos."
+      );
+    }
+  );
+
+  // FILTROS DINÂMICOS
+
+  [
+    "#pendSearch",
+    "#pendStatusFilter",
+    "#pendContractFilter"
+  ].forEach((selector) => {
+    q(selector).addEventListener(
+      "input",
+      draw
+    );
+  });
+
+  // FECHAR JANELAS
+
+  document.querySelectorAll(
+    "[data-pend-close]"
+  ).forEach((button) => {
+    button.addEventListener(
+      "click",
+      () => button.closest("dialog").close()
+    );
+  });
+
+  // ATIVAR A NOVA ABA
+
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(
+      ".mode-tab"
+    ).forEach((button) => {
+      button.classList.toggle(
+        "active",
+        button === tab
+      );
+    });
+
+    document.querySelectorAll(
+      ".mode-view"
+    ).forEach((section) => {
+      section.hidden =
+        section.id !== "pendencias";
+    });
+
+    draw();
+  });
+
+  // INICIAR
+
+  draw();
+})();
