@@ -3,8 +3,7 @@
 
 /*
   CAF SUREG-PA — Gestão Financeira
-  Cadastros, importação CSV, backup e Central de Documentos.
-  Dados locais. Sem inserção automática de exemplos.
+  
 */
 
 (() => {
