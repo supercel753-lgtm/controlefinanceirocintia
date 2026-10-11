@@ -4,199 +4,162 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0a5285">
-  <meta name="description"
-        content="CAF SUREG-PA — Controle e Acompanhamento Financeiro">
+  <meta name="theme-color" content="#124f7f">
+  <meta name="description" content="CAF SUREG-PA — Controle e Acompanhamento Financeiro">
   <title>CAF SUREG-PA | Gestão Financeira</title>
-
-  <link rel="icon" href="assets/favicon.ico?v=4" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32"
-        href="assets/favicon-32x32.png?v=4">
-  <link rel="apple-touch-icon"
-        href="assets/apple-touch-icon.png?v=4">
-
-  <link rel="stylesheet" href="src/style.css?v=4">
-  <script defer src="src/app.js?v=4"></script>
+  <link rel="icon" href="assets/favicon.ico?v=7">
+  <link rel="stylesheet" href="src/style.css?v=7">
+  <script defer src="src/app.js?v=7"></script>
 </head>
 <body>
-
-<div class="layout">
-
-  <!-- NAVEGAÇÃO -->
-  <aside class="sidebar">
-    <div class="identity">
-      <div class="logo">
-        <img src="assets/logo-sgb.png"
-             alt="Serviço Geológico do Brasil">
-      </div>
+<div class="app-layout">
+  <aside class="sidebar" aria-label="Menu principal">
+    <div class="brand">
+      <img src="assets/logo-sgb.png" alt="Serviço Geológico do Brasil — SGB">
       <strong>CAF <span>SUREG-PA</span></strong>
       <small>Controle e Acompanhamento Financeiro</small>
     </div>
-
-    <nav class="nav" aria-label="Navegação principal">
-      <span class="nav-label">PAINEL</span>
-
-      <button class="nav-item active" data-view="dashboard" type="button">
-        <span>▦</span> Visão geral
-      </button>
-
-      <span class="nav-label">GESTÃO FINANCEIRA</span>
-
-      <button class="nav-item" data-view="contracts" type="button">
-        <span>▤</span> Contratos
-      </button>
-
-      <button class="nav-item" data-view="payments" type="button">
-        <span>↗</span> Pagamentos
-      </button>
-
-      <button class="nav-item" data-view="pending" type="button">
-        <span>◷</span> Pendências
-      </button>
-
-      <button class="nav-item" data-view="budget" type="button">
-        <span>◫</span> Orçamento e PLOA
-      </button>
-
-      <span class="nav-label">CADASTROS E DADOS</span>
-
-      <button class="nav-item" data-view="companies" type="button">
-        <span>▥</span> Fornecedores
-      </button>
-
-      <button class="nav-item" data-view="reports" type="button">
-        <span>↓</span> Importar e exportar
-      </button>
-
-      <button class="nav-item" data-view="settings" type="button">
-        <span>⚙</span> Configurações
-      </button>
+    <nav class="nav" aria-label="Módulos do sistema">
+      <span class="nav-group">PAINEL</span>
+      <button type="button" class="nav-link active" data-view="dashboard">◫ <span>Visão geral</span></button>
+      <span class="nav-group">GESTÃO FINANCEIRA</span>
+      <button type="button" class="nav-link" data-view="contracts">▤ <span>Contratos</span></button>
+      <button type="button" class="nav-link" data-view="payments">↗ <span>Pagamentos</span></button>
+      <button type="button" class="nav-link" data-view="pending">◷ <span>Pendências</span></button>
+      <button type="button" class="nav-link" data-view="budget">▥ <span>Orçamento e PLOA</span></button>
+      <span class="nav-group">CADASTROS E DADOS</span>
+      <button type="button" class="nav-link" data-view="suppliers">▦ <span>Fornecedores</span></button>
+      <button type="button" class="nav-link" data-view="files">⇅ <span>Importar e exportar</span></button>
+      <button type="button" class="nav-link" data-view="settings">⚙ <span>Configurações</span></button>
     </nav>
-
-    <div class="side-bottom">
-      <span class="tiny-dot"></span>
-      Armazenamento neste navegador
-    </div>
+    <div class="sidebar-bottom">CAF SUREG-PA <span>· Gestão financeira</span></div>
   </aside>
 
-  <!-- CONTEÚDO -->
   <main class="main">
     <header class="topbar">
       <div>
-        <span class="overline">CAF / SUREG-PA</span>
+        <span class="eyebrow">CAF / SUREG-PA</span>
         <h1 id="pageTitle">Visão geral</h1>
       </div>
-
-      <div class="top-actions">
-        <button class="btn outline" data-action="backup" type="button">
-          ↓ Salvar backup
-        </button>
-        <button class="btn primary" data-action="new-contract" type="button">
-          ＋ Novo contrato
-        </button>
+      <div class="header-actions">
+        <button type="button" class="btn secondary" data-view="files">↑ Importar CSV</button>
+        <button type="button" class="btn primary" data-action="new-contract">+ Novo contrato</button>
       </div>
     </header>
 
     <!-- DASHBOARD -->
     <section class="view" id="view-dashboard">
-      <div class="section-title">
+      <div class="section-heading">
         <div>
           <h2>Panorama financeiro</h2>
-          <p>Consolidação dos registros cadastrados no sistema.</p>
+          <p>Indicadores calculados a partir dos registros cadastrados.</p>
         </div>
-        <span class="period">Referência: 2026</span>
+        <span class="period-label">Exercício 2026</span>
       </div>
 
-      <div id="kpiGrid" class="kpis"></div>
+      <div class="kpi-grid">
+        <article class="kpi">
+          <span>Contratos vigentes</span>
+          <strong id="kpiActive">0</strong>
+          <small id="kpiActiveSub">0 contratos cadastrados</small>
+        </article>
+        <article class="kpi green">
+          <span>Pagamentos de 2026</span>
+          <strong id="kpiPaid">R$ 0,00</strong>
+          <small id="kpiPaidSub">0 pagamentos registrados</small>
+        </article>
+        <article class="kpi orange">
+          <span>Pendências em aberto</span>
+          <strong id="kpiPending">R$ 0,00</strong>
+          <small id="kpiPendingSub">0 registros pendentes</small>
+        </article>
+        <article class="kpi violet">
+          <span>PLOA 2026 informado</span>
+          <strong id="kpiPloa">R$ 0,00</strong>
+          <small id="kpiPloaSub">Planejamento contratual</small>
+        </article>
+      </div>
 
-      <div class="charts">
-        <article class="panel large">
-          <div class="panel-head">
+      <div class="grid-dashboard">
+        <article class="panel">
+          <div class="panel-heading">
             <div>
-              <h3>Fluxo financeiro</h3>
-              <p>
-                Pagamentos registrados e competências pendentes
-                · últimos seis meses
-              </p>
+              <h3>Movimentação financeira</h3>
+              <p>Pagamentos e pendências por mês — últimos 6 meses</p>
             </div>
-            <div class="legend">
-              <span><i class="key-blue"></i>Pagos</span>
-              <span><i class="key-orange"></i>Pendentes</span>
+            <div class="chart-legend">
+              <span class="legend-paid">Pagos</span>
+              <span class="legend-open">Pendentes</span>
             </div>
           </div>
           <div id="monthlyChart" class="bar-chart"></div>
         </article>
 
         <article class="panel">
-          <div class="panel-head">
+          <div class="panel-heading">
             <div>
               <h3>Situação dos contratos</h3>
-              <p>Classificação por vigência</p>
+              <p>Distribuição das vigências registradas</p>
             </div>
           </div>
-          <div class="donut" id="donut"></div>
-          <div id="donutLegend" class="donut-legend"></div>
+          <div class="donut" id="statusDonut"></div>
+          <div class="donut-legend" id="statusLegend"></div>
         </article>
       </div>
 
-      <div class="charts equal">
+      <div class="grid-half">
         <article class="panel">
-          <div class="panel-head">
-            <h3>Últimos pagamentos</h3>
-            <button class="text-btn" data-view="payments" type="button">
-              Ver todos →
-            </button>
+          <div class="panel-heading">
+            <h3>Pagamentos recentes</h3>
+            <button type="button" class="link-action" data-view="payments">Ver todos →</button>
           </div>
           <div id="recentPayments"></div>
         </article>
-
         <article class="panel">
-          <div class="panel-head">
-            <h3>Pendências em aberto</h3>
-            <button class="text-btn" data-view="pending" type="button">
-              Acompanhar →
-            </button>
+          <div class="panel-heading">
+            <h3>Pendências abertas</h3>
+            <button type="button" class="link-action" data-view="pending">Acompanhar →</button>
           </div>
           <div id="recentPending"></div>
         </article>
       </div>
-
-      <p id="dashboardNote" class="footnote"></p>
     </section>
 
     <!-- CONTRATOS -->
     <section class="view" id="view-contracts" hidden>
-      <div class="section-title">
+      <div class="section-heading">
         <div>
           <h2>Contratos</h2>
-          <p>Cadastro, vigências, valores e informações contratuais.</p>
+          <p>Gestão de vigências, responsabilidades e dados financeiros.</p>
         </div>
-        <button class="btn primary" data-action="new-contract" type="button">
-          ＋ Cadastrar contrato
-        </button>
+        <button type="button" class="btn primary" data-action="new-contract">+ Cadastrar contrato</button>
       </div>
 
       <article class="panel">
-        <div class="table-toolbar">
-          <input type="search" id="filterContracts"
-                 placeholder="Buscar por empresa, contrato ou processo"
-                 aria-label="Pesquisar contratos">
-          <span id="contractsTotal" class="muted"></span>
+        <div class="toolbar">
+          <input type="search" id="searchContracts" placeholder="Buscar contrato, fornecedor, processo ou objeto" aria-label="Buscar contratos">
+          <select id="filterContractStatus" aria-label="Filtrar vigência">
+            <option value="todos">Todas as situações</option>
+            <option value="Vigente">Vigentes</option>
+            <option value="A iniciar">A iniciar</option>
+            <option value="Encerrado">Encerrados</option>
+            <option value="Sem vigência">Sem vigência</option>
+          </select>
+          <span class="count" id="countContracts"></span>
         </div>
-
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
                 <th>Contrato / processo</th>
-                <th>Empresa</th>
-                <th>Vigência final</th>
+                <th>Fornecedor</th>
+                <th>Vigência</th>
                 <th>Valor global</th>
                 <th>Situação</th>
                 <th>Ações</th>
               </tr>
             </thead>
-            <tbody id="contractsRows"></tbody>
+            <tbody id="rowsContracts"></tbody>
           </table>
         </div>
       </article>
@@ -204,36 +167,34 @@
 
     <!-- PAGAMENTOS -->
     <section class="view" id="view-payments" hidden>
-      <div class="section-title">
+      <div class="section-heading">
         <div>
-          <h2>Histórico de pagamentos</h2>
-          <p>Pagamentos efetivamente registrados, vinculados a contratos.</p>
+          <h2>Pagamentos</h2>
+          <p>Controle de valores efetivamente pagos, por contrato e competência.</p>
         </div>
-        <button class="btn primary" data-action="new-payment" type="button">
-          ＋ Registrar pagamento
-        </button>
+        <button type="button" class="btn primary" data-action="new-payment">+ Registrar pagamento</button>
       </div>
 
       <article class="panel">
-        <div class="table-toolbar">
-          <input type="search" id="filterPayments"
-                 placeholder="Buscar por empresa, contrato ou descrição"
-                 aria-label="Pesquisar pagamentos">
-          <span id="paymentsTotal" class="muted"></span>
+        <div class="toolbar">
+          <input type="search" id="searchPayments" placeholder="Buscar fornecedor, contrato, NF ou referência" aria-label="Buscar pagamentos">
+          <input type="month" id="filterPaymentMonth" aria-label="Filtrar competência">
+          <button type="button" class="btn subtle" id="clearPaymentFilters">Limpar filtros</button>
+          <span class="count" id="countPayments"></span>
         </div>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
                 <th>Data</th>
-                <th>Empresa</th>
-                <th>Contrato</th>
-                <th>Descrição</th>
-                <th>Valor</th>
+                <th>Fornecedor / contrato</th>
+                <th>Competência</th>
+                <th>NF / referência</th>
+                <th>Valor pago</th>
                 <th>Ações</th>
               </tr>
             </thead>
-            <tbody id="paymentsRows"></tbody>
+            <tbody id="rowsPayments"></tbody>
           </table>
         </div>
       </article>
@@ -241,33 +202,23 @@
 
     <!-- PENDÊNCIAS -->
     <section class="view" id="view-pending" hidden>
-      <div class="section-title">
+      <div class="section-heading">
         <div>
-          <h2>Pagamentos pendentes</h2>
-          <p>Acompanhamento por contrato e competência.</p>
+          <h2>Pendências financeiras</h2>
+          <p>Obrigações em acompanhamento até a conclusão.</p>
         </div>
-        <button class="btn primary" data-action="new-pending" type="button">
-          ＋ Nova pendência
-        </button>
+        <button type="button" class="btn primary" data-action="new-pending">+ Nova pendência</button>
       </div>
 
-      <article class="panel pending-panel">
-        <div class="panel-head">
-          <div>
-            <h3>Obrigações em acompanhamento</h3>
-            <p id="pendingTopline"></p>
-          </div>
-        </div>
-
-        <div class="table-toolbar">
-          <input type="search" id="filterPending"
-                 placeholder="Buscar empresa, processo, contrato ou competência"
-                 aria-label="Pesquisar pendências">
-          <select id="pendingStatus" aria-label="Filtrar situação">
+      <article class="panel">
+        <div class="toolbar">
+          <input type="search" id="searchPending" placeholder="Buscar fornecedor, processo ou referência" aria-label="Buscar pendências">
+          <select id="filterPendingStatus" aria-label="Filtrar situação">
             <option value="aberto">Em aberto</option>
             <option value="concluido">Concluídas</option>
             <option value="todos">Todas</option>
           </select>
+          <span class="count" id="countPending"></span>
         </div>
         <div id="pendingCards" class="pending-list"></div>
       </article>
@@ -275,65 +226,57 @@
 
     <!-- ORÇAMENTO -->
     <section class="view" id="view-budget" hidden>
-      <div class="section-title">
+      <div class="section-heading">
         <div>
           <h2>Orçamento e PLOA</h2>
-          <p>Planejamento contratual e comparação com pagamentos registrados.</p>
+          <p>Comparativo dos valores informados por contrato.</p>
         </div>
       </div>
-
-      <div id="budgetSummary" class="summary-grid"></div>
-
+      <div class="summary-grid" id="budgetSummary"></div>
       <article class="panel">
-        <div class="panel-head">
+        <div class="panel-heading">
           <h3>Pagamentos em relação ao PLOA 2026</h3>
-          <span id="budgetProgress" class="muted"></span>
+          <strong id="budgetPercent" class="muted">—</strong>
         </div>
         <div class="progress"><div id="budgetBar"></div></div>
-        <p class="footnote">
-          PLOA é referência de planejamento; este cálculo não corresponde
-          a saldo disponível, empenhado ou liquidado.
+        <p class="hint">
+          O PLOA informado é uma referência de planejamento.
+          Este indicador não representa saldo orçamentário disponível,
+          empenhado ou liquidado.
         </p>
       </article>
-
       <article class="panel">
-        <h3>Valores por contrato</h3>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Contrato / empresa</th>
-                <th>Gasto 2025</th>
+                <th>Fornecedor / contrato</th>
+                <th>Gasto em 2025</th>
                 <th>PLOA 2026</th>
                 <th>Pago em 2026</th>
                 <th>Relação</th>
-                <th>Ação</th>
+                <th>Ações</th>
               </tr>
             </thead>
-            <tbody id="budgetRows"></tbody>
+            <tbody id="rowsBudget"></tbody>
           </table>
         </div>
       </article>
     </section>
 
     <!-- FORNECEDORES -->
-    <section class="view" id="view-companies" hidden>
-      <div class="section-title">
+    <section class="view" id="view-suppliers" hidden>
+      <div class="section-heading">
         <div>
           <h2>Fornecedores</h2>
-          <p>Empresas cadastradas e contratos vinculados.</p>
+          <p>Empresas cadastradas e seus vínculos contratuais.</p>
         </div>
-        <button class="btn primary" data-action="new-company" type="button">
-          ＋ Nova empresa
-        </button>
+        <button type="button" class="btn primary" data-action="new-supplier">+ Novo fornecedor</button>
       </div>
-
       <article class="panel">
-        <div class="table-toolbar">
-          <input type="search" id="filterCompanies"
-                 placeholder="Buscar razão social ou CNPJ"
-                 aria-label="Pesquisar fornecedores">
-          <span id="companiesTotal" class="muted"></span>
+        <div class="toolbar">
+          <input type="search" id="searchSuppliers" placeholder="Buscar por razão social ou CNPJ" aria-label="Buscar fornecedores">
+          <span class="count" id="countSuppliers"></span>
         </div>
         <div class="table-scroll">
           <table>
@@ -341,308 +284,340 @@
               <tr>
                 <th>Razão social</th>
                 <th>CNPJ</th>
+                <th>Contato</th>
                 <th>Contratos</th>
                 <th>Ações</th>
               </tr>
             </thead>
-            <tbody id="companiesRows"></tbody>
+            <tbody id="rowsSuppliers"></tbody>
           </table>
         </div>
       </article>
     </section>
 
     <!-- IMPORTAÇÃO E EXPORTAÇÃO -->
-    <section class="view" id="view-reports" hidden>
-      <div class="section-title">
+    <section class="view" id="view-files" hidden>
+      <div class="section-heading">
         <div>
           <h2>Importação e exportação</h2>
-          <p>Movimente cadastros estruturados em CSV ou TXT delimitado.</p>
+          <p>CSV com conferência, exportações por cadastro e modelos de arquivo.</p>
         </div>
       </div>
 
-      <div id="reportStats" class="summary-grid"></div>
+      <article class="panel importer">
+        <div class="panel-heading">
+          <div>
+            <h3>Importar CSV ou TXT tabular</h3>
+            <p>Arquivos com separador ponto e vírgula, vírgula ou tabulação.</p>
+          </div>
+        </div>
 
-      <article class="panel">
-        <h3>Exportar cadastros</h3>
-        <p class="muted">
-          Arquivos CSV com cabeçalhos, compatíveis com planilhas eletrônicas.
+        <div class="import-tools">
+          <label>
+            Tipo de registro
+            <select id="importType">
+              <option value="suppliers">Fornecedores</option>
+              <option value="contracts">Contratos</option>
+              <option value="payments">Pagamentos</option>
+              <option value="pendencias">Pendências</option>
+            </select>
+          </label>
+          <button type="button" class="btn primary" id="chooseCsv">↑ Selecionar arquivo</button>
+          <input type="file" id="csvFile" accept=".csv,.txt,text/csv,text/plain" hidden>
+        </div>
+
+        <div class="dropzone" id="csvDropzone" role="button" tabindex="0">
+          Arraste um CSV até aqui ou clique para procurar
+        </div>
+
+        <p id="importMessage" class="hint" aria-live="polite">
+          Importe fornecedores antes dos contratos; depois importe os pagamentos e as pendências.
         </p>
 
-        <div class="button-row">
-          <button class="btn outline" data-action="export-companies" type="button">
-            ↓ Fornecedores
-          </button>
-          <button class="btn outline" data-action="export-contracts" type="button">
-            ↓ Contratos
-          </button>
-          <button class="btn outline" data-action="export-payments" type="button">
-            ↓ Pagamentos
-          </button>
-          <button class="btn outline" data-action="export-pending" type="button">
-            ↓ Pendências
-          </button>
+        <div id="importPreview" class="import-preview" hidden>
+          <h3>Conferência antes de salvar</h3>
+          <div id="importSummary" class="summary-grid"></div>
+          <div class="table-scroll">
+            <table id="previewTable"></table>
+          </div>
+          <pre id="importErrors" class="import-errors"></pre>
+          <div class="button-row">
+            <button type="button" class="btn secondary" id="cancelImport">Cancelar</button>
+            <button type="button" class="btn primary" id="confirmImport">Confirmar importação</button>
+          </div>
         </div>
       </article>
 
       <article class="panel">
-        <h3>Importar registros</h3>
-        <p class="muted">
-          Selecione o cadastro correspondente. Registros sem vínculos
-          identificáveis serão ignorados.
-        </p>
-
+        <h3>Exportar cadastros</h3>
+        <p class="muted">O arquivo exportado também pode ser reimportado no CAF.</p>
         <div class="button-row">
-          <select id="importKind" aria-label="Tipo de cadastro a importar">
-            <option value="suppliers">Fornecedores</option>
-            <option value="contracts">Contratos</option>
-            <option value="payments">Pagamentos</option>
-            <option value="pendencias">Pendências</option>
-          </select>
-
-          <button class="btn primary" data-action="import" type="button">
-            Selecionar CSV ou TXT
-          </button>
-
-          <input id="importFile" type="file"
-                 accept=".csv,.txt,text/csv,text/plain" hidden>
+          <button type="button" class="btn secondary" data-export="suppliers">↓ Fornecedores</button>
+          <button type="button" class="btn secondary" data-export="contracts">↓ Contratos</button>
+          <button type="button" class="btn secondary" data-export="payments">↓ Pagamentos</button>
+          <button type="button" class="btn secondary" data-export="pendencias">↓ Pendências</button>
         </div>
+      </article>
 
-        <p class="footnote" id="importResult" aria-live="polite"></p>
+      <article class="panel">
+        <h3>Baixar modelos CSV</h3>
+        <p class="muted">Modelos vazios com os cabeçalhos corretos, prontos para preencher no Excel.</p>
+        <div class="button-row">
+          <button type="button" class="btn subtle" data-template="suppliers">Modelo fornecedores</button>
+          <button type="button" class="btn subtle" data-template="contracts">Modelo contratos</button>
+          <button type="button" class="btn subtle" data-template="payments">Modelo pagamentos</button>
+          <button type="button" class="btn subtle" data-template="pendencias">Modelo pendências</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h3>Orientações para o CSV</h3>
+        <p class="muted">
+          Para associar registros, utilize o CNPJ do fornecedor e o número do
+          contrato ou processo. Valores podem estar em formato brasileiro,
+          como <code>1.234,56</code>; datas podem usar <code>31/10/2026</code>;
+          competência pode usar <code>10/2026</code>. A prévia informa linhas
+          rejeitadas e seus motivos. Arquivos DOCX e PDF ainda não são
+          interpretados nesta versão.
+        </p>
       </article>
     </section>
 
     <!-- CONFIGURAÇÕES -->
     <section class="view" id="view-settings" hidden>
-      <div class="section-title">
+      <div class="section-heading">
         <div>
           <h2>Configurações</h2>
-          <p>Backup e integridade dos registros.</p>
+          <p>Backup, restauração e informações do armazenamento.</p>
         </div>
       </div>
-
-      <article class="panel settings-card">
-        <h3>Armazenamento</h3>
+      <article class="panel settings-panel">
+        <h3>Armazenamento atual</h3>
         <p id="storageInfo" class="muted"></p>
-        <p>
-          Os cadastros são armazenados neste navegador.
-          A sincronização entre usuários e computadores dependerá
-          de um banco de dados com autenticação e permissões.
+        <p class="hint">
+          Os registros ficam neste navegador. Ainda não existe sincronização
+          entre usuários ou computadores, autenticação ou conexão com Supabase.
         </p>
-
         <div class="button-row">
-          <button class="btn primary" data-action="backup" type="button">
-            ↓ Exportar backup JSON
-          </button>
-          <button class="btn outline" data-action="restore" type="button">
-            Restaurar backup
-          </button>
-          <input id="restoreFile" type="file"
-                 accept=".json,application/json" hidden>
+          <button type="button" class="btn primary" id="backupButton">↓ Exportar backup JSON</button>
+          <button type="button" class="btn secondary" id="restoreButton">Restaurar backup JSON</button>
+          <input type="file" id="restoreFile" accept=".json,application/json" hidden>
         </div>
-
-        <p class="footnote">
-          A restauração substitui todos os registros atuais.
-          Guarde um backup antes de restaurar.
+        <p class="hint">
+          A restauração substitui os registros deste navegador.
+          Guarde um backup antes de continuar.
         </p>
       </article>
     </section>
   </main>
 </div>
 
-<!-- FORNECEDOR -->
-<dialog class="modal" id="companyDialog">
-  <form id="companyForm">
-    <div class="modal-head">
-      <h2 id="companyDialogTitle">Fornecedor</h2>
-      <button type="button" class="close"
-              data-close="companyDialog" aria-label="Fechar">×</button>
+<!-- FORMULÁRIO DE FORNECEDOR -->
+<dialog id="supplierDialog" class="dialog">
+  <form id="supplierForm">
+    <div class="dialog-heading">
+      <h2 id="supplierDialogTitle">Fornecedor</h2>
+      <button type="button" class="dialog-close" data-close="supplierDialog" aria-label="Fechar">×</button>
     </div>
-
-    <div class="fields">
+    <div class="form-grid">
       <label class="full">
         Razão social *
         <input name="nome" required maxlength="160">
       </label>
-      <label class="full">
+      <label>
         CNPJ *
-        <input name="cnpj" inputmode="numeric"
-               maxlength="18" required>
+        <input name="cnpj" required inputmode="numeric" maxlength="18" placeholder="00.000.000/0000-00">
+      </label>
+      <label>
+        Telefone
+        <input name="telefone" maxlength="30">
+      </label>
+      <label class="full">
+        E-mail
+        <input name="email" type="email" maxlength="160">
+      </label>
+      <label class="full">
+        Observações
+        <textarea name="observacoes" rows="3"></textarea>
       </label>
     </div>
-
-    <div class="modal-actions">
-      <button class="btn outline" type="button"
-              data-close="companyDialog">Cancelar</button>
-      <button class="btn primary" type="submit">Salvar fornecedor</button>
+    <div class="dialog-actions">
+      <button type="button" class="btn secondary" data-close="supplierDialog">Cancelar</button>
+      <button type="submit" class="btn primary">Salvar fornecedor</button>
     </div>
   </form>
 </dialog>
 
-<!-- CONTRATO -->
-<dialog class="modal wide" id="contractDialog">
+<!-- FORMULÁRIO DE CONTRATO -->
+<dialog id="contractDialog" class="dialog wide-dialog">
   <form id="contractForm">
-    <div class="modal-head">
-      <h2 id="contractDialogTitle">Contrato</h2>
-      <button type="button" class="close"
-              data-close="contractDialog" aria-label="Fechar">×</button>
+    <div class="dialog-heading">
+      <div>
+        <h2 id="contractDialogTitle">Contrato</h2>
+        <p>Preencha os campos obrigatórios e complemente quando necessário.</p>
+      </div>
+      <button type="button" class="dialog-close" data-close="contractDialog" aria-label="Fechar">×</button>
     </div>
 
-    <div class="fields">
-      <label class="full">
-        Empresa / favorecido *
-        <select name="supplier" id="contractSupplier" required></select>
+    <div class="form-section-title">Identificação</div>
+    <div class="form-grid">
+      <label class="full">Fornecedor *
+        <select id="contractSupplier" name="supplier" required></select>
       </label>
-
       <label>Número do contrato
-        <input name="numero">
+        <input name="numero" maxlength="60" placeholder="Ex.: 017/2026">
       </label>
       <label>Processo contratual *
-        <input name="processo" required>
+        <input name="processo" required maxlength="80">
       </label>
-
       <label>Vigência inicial *
         <input type="date" name="vigenciaInicial" required>
       </label>
       <label>Vigência final *
         <input type="date" name="vigenciaFinal" required>
       </label>
-
-      <label>Valor global (R$)
-        <input name="valorGlobal" type="number" min="0" step="0.01">
-      </label>
-      <label>Custo mensal por posto (R$)
-        <input name="custoPosto" type="number" min="0" step="0.01">
-      </label>
-
-      <label>Gasto anual 2025 (R$)
-        <input name="gastoAnual2025" type="number" min="0" step="0.01">
-      </label>
-      <label>PLOA 2026 (R$)
-        <input name="ploa2026" type="number" min="0" step="0.01">
-      </label>
-
       <label class="full">Objeto
         <textarea name="objeto" rows="3"></textarea>
       </label>
     </div>
 
-    <details class="details">
-      <summary>Dados complementares e cálculo da CCT</summary>
-      <div class="fields">
+    <div class="form-section-title">Valores e planejamento</div>
+    <div class="form-grid">
+      <label>Valor global (R$)
+        <input type="number" name="valorGlobal" step="0.01" min="0">
+      </label>
+      <label>Custo mensal por posto (R$)
+        <input type="number" name="custoPosto" step="0.01" min="0">
+      </label>
+      <label>Gasto anual 2025 (R$)
+        <input type="number" name="gastoAnual2025" step="0.01" min="0">
+      </label>
+      <label>PLOA 2026 (R$)
+        <input type="number" name="ploa2026" step="0.01" min="0">
+      </label>
+    </div>
 
+    <details class="advanced">
+      <summary>Dados de gestão, fiscalização e CCT</summary>
+      <div class="form-grid">
         <label>Unidade<input name="unidade"></label>
         <label>Tipo de contrato<input name="tipo"></label>
         <label>Modalidade<input name="modalidade"></label>
         <label>Natureza de despesa<input name="nd"></label>
-
         <label>Gestor<input name="gestor"></label>
         <label>Fiscal administrativo<input name="fiscalAdm"></label>
         <label>Fiscal técnico<input name="fiscalTecnico"></label>
         <label>Suplente<input name="suplente"></label>
-
         <label>Garantia<input name="garantia"></label>
         <label>Tipo de custo<input name="tipoCusto"></label>
         <label>Categoria de serviço<input name="categoria"></label>
         <label>Quantidade de postos
-          <input type="number" name="postos" min="0" step="1">
+          <input type="number" name="postos" step="1" min="0">
         </label>
-
-        <label>Salário base CCT (R$)
-          <input type="number" name="salario" min="0" step="0.01">
+        <label>Salário-base CCT (R$)
+          <input type="number" name="salario" step="0.01" min="0">
         </label>
-        <label>Encargos (%)
-          <input type="number" name="encargos" min="0" step="0.01">
+        <label>Encargos estimados (%)
+          <input type="number" name="encargos" step="0.01" min="0">
         </label>
         <label>Materiais mensais (R$)
-          <input type="number" name="materiais" min="0" step="0.01">
+          <input type="number" name="materiais" step="0.01" min="0">
         </label>
-        <label>Total mensal estimado
-          <input id="cctTotal" readonly value="R$ 0,00">
+        <label>Estimativa mensal simplificada
+          <input id="cctEstimate" type="text" readonly>
         </label>
-
         <label>Gasto mensal 2025 (R$)
-          <input type="number" name="gastoMensal2025" min="0" step="0.01">
+          <input type="number" name="gastoMensal2025" step="0.01" min="0">
         </label>
         <label>Total gasto 2025 (R$)
-          <input type="number" name="totalGasto2025" min="0" step="0.01">
+          <input type="number" name="totalGasto2025" step="0.01" min="0">
         </label>
-
-        <label>Qtd. atual
-          <input type="number" name="qtdAtual" min="0" step="1">
+        <label>Quantidade atual
+          <input type="number" name="qtdAtual" step="1" min="0">
         </label>
-        <label>Qtd. em análise
-          <input type="number" name="qtdAnalise" min="0" step="1">
+        <label>Quantidade em análise
+          <input type="number" name="qtdAnalise" step="1" min="0">
         </label>
-
         <label class="full">Observações
           <textarea name="observacoes" rows="3"></textarea>
         </label>
       </div>
+      <p class="hint">
+        A estimativa considera salário × (1 + percentual informado de encargos)
+        × postos + materiais. Não substitui planilha de custos, tributos,
+        benefícios ou cálculos oficiais da CCT.
+      </p>
     </details>
 
-    <div class="modal-actions">
-      <button class="btn outline" type="button"
-              data-close="contractDialog">Cancelar</button>
-      <button class="btn primary" type="submit">Salvar contrato</button>
+    <div class="dialog-actions">
+      <button type="button" class="btn secondary" data-close="contractDialog">Cancelar</button>
+      <button type="submit" class="btn primary">Salvar contrato</button>
     </div>
   </form>
 </dialog>
 
-<!-- PAGAMENTO -->
-<dialog class="modal" id="paymentDialog">
+<!-- FORMULÁRIO DE PAGAMENTO -->
+<dialog id="paymentDialog" class="dialog">
   <form id="paymentForm">
-    <div class="modal-head">
+    <div class="dialog-heading">
       <h2 id="paymentDialogTitle">Pagamento</h2>
-      <button type="button" class="close"
-              data-close="paymentDialog" aria-label="Fechar">×</button>
+      <button type="button" class="dialog-close" data-close="paymentDialog" aria-label="Fechar">×</button>
     </div>
-
-    <div class="fields">
+    <div class="form-grid">
       <label class="full">Contrato *
         <select name="contractId" data-contract-select required></select>
       </label>
-      <label>Data *
-        <input type="date" name="data" required>
+      <label>Data do pagamento *
+        <input name="data" type="date" required>
       </label>
-      <label>Valor (R$) *
-        <input type="number" name="valor" min="0.01"
-               step="0.01" required>
+      <label>Competência
+        <input name="competencia" type="month">
       </label>
-      <label class="full">Descrição / competência
-        <input name="descricao">
+      <label>Valor pago (R$) *
+        <input name="valor" type="number" min="0.01" step="0.01" required>
+      </label>
+      <label>Número da NF
+        <input name="notaFiscal" maxlength="90">
+      </label>
+      <label>Número do empenho
+        <input name="empenho" maxlength="90">
+      </label>
+      <label>Processo de pagamento
+        <input name="processoPagamento" maxlength="90">
+      </label>
+      <label class="full">Descrição / referência
+        <input name="descricao" maxlength="240">
       </label>
     </div>
-
-    <div class="modal-actions">
-      <button class="btn outline" type="button"
-              data-close="paymentDialog">Cancelar</button>
-      <button class="btn primary" type="submit">Salvar pagamento</button>
+    <div class="dialog-actions">
+      <button type="button" class="btn secondary" data-close="paymentDialog">Cancelar</button>
+      <button type="submit" class="btn primary">Salvar pagamento</button>
     </div>
   </form>
 </dialog>
 
-<!-- PENDÊNCIA -->
-<dialog class="modal" id="pendingDialog">
+<!-- FORMULÁRIO DE PENDÊNCIA -->
+<dialog id="pendingDialog" class="dialog">
   <form id="pendingForm">
-    <div class="modal-head">
+    <div class="dialog-heading">
       <h2 id="pendingDialogTitle">Pendência</h2>
-      <button type="button" class="close"
-              data-close="pendingDialog" aria-label="Fechar">×</button>
+      <button type="button" class="dialog-close" data-close="pendingDialog" aria-label="Fechar">×</button>
     </div>
-
-    <div class="fields">
+    <div class="form-grid">
       <label class="full">Contrato *
         <select name="contractId" data-contract-select required></select>
       </label>
       <label>Competência *
-        <input type="month" name="competencia" required>
+        <input name="competencia" type="month" required>
       </label>
-      <label>Valor líquido (R$) *
-        <input type="number" name="valor" min="0"
-               step="0.01" required>
+      <label>Valor previsto (R$) *
+        <input name="valor" type="number" min="0" step="0.01" required>
       </label>
       <label>Referência documental
-        <input name="referencia">
+        <input name="referencia" maxlength="130">
+      </label>
+      <label>Prazo / vencimento
+        <input name="vencimento" type="date">
       </label>
       <label>Situação
         <select name="status">
@@ -650,12 +625,13 @@
           <option value="concluido">Concluída</option>
         </select>
       </label>
+      <label class="full">Observações
+        <textarea name="observacoes" rows="3"></textarea>
+      </label>
     </div>
-
-    <div class="modal-actions">
-      <button class="btn outline" type="button"
-              data-close="pendingDialog">Cancelar</button>
-      <button class="btn primary" type="submit">Salvar pendência</button>
+    <div class="dialog-actions">
+      <button type="button" class="btn secondary" data-close="pendingDialog">Cancelar</button>
+      <button type="submit" class="btn primary">Salvar pendência</button>
     </div>
   </form>
 </dialog>
