@@ -965,3 +965,95 @@ td.actions button.danger-text {
   .table-toolbar input { min-width: 100%; }
   .section-intro h2 { font-size: 18px; }
 }
+/* =====================================
+   IDENTIDADE VISUAL SGB / CAF SUREG-PA
+   ===================================== */
+
+.sidebar .brand.brand-sgb {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 15px;
+  padding: 0 4px 25px;
+  border-bottom: 1px solid #ffffff20;
+}
+
+.sgb-logo-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  background: #ffffff;
+  padding: 15px 12px;
+
+  border-radius: 13px;
+  box-shadow: 0 5px 18px #071d261e;
+}
+
+.sgb-logo {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  max-height: 130px;
+  height: auto;
+  object-fit: contain;
+}
+
+.sgb-brand-name {
+  text-align: center;
+}
+
+.sgb-brand-name small {
+  display: block;
+  color: #a5c4c6;
+  font-size: 9px;
+  letter-spacing: 1.1px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.sgb-brand-name strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: .4px;
+}
+
+/* Adaptação para celular */
+
+@media (max-width: 760px) {
+
+  .sidebar .brand.brand-sgb {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 0 0 12px;
+    border-bottom: 1px solid #ffffff20;
+  }
+
+  .sgb-logo-card {
+    width: 90px;
+    flex-shrink: 0;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .sgb-logo {
+    max-height: 55px;
+  }
+
+  .sgb-brand-name {
+    text-align: left;
+  }
+
+  .sgb-brand-name strong {
+    font-size: 14px;
+  }
+
+  .sgb-brand-name small {
+    font-size: 8px;
+  }
+}
+
