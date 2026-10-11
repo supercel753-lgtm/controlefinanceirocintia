@@ -1,24 +1,9 @@
 
 "use strict";
 
-/*
-  CAF SUREG-PA — Gestão Financeira
-  Versão local completa.
-
-  Compatível com:
-  index.html
-  src/style.css
-
-  Preparado para futura integração Supabase.
-*/
-
 (() => {
-
-  // ========================================
-  // CONFIGURAÇÕES
-  // ========================================
-
-  const KEY = "sureg-pa-demo-v1";
+  const STORE = "sureg-pa-demo-v1";
+  const ARCHIVE = "caf_suregpa_registros_antigos_arquivados_v1";
   const YEAR = 2026;
 
   const TYPES = [
@@ -28,101 +13,76 @@
     "pendencias"
   ];
 
-  const $ = (selector, root = document) =>
-    root.querySelector(selector);
+  const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) =>
+    [...root.querySelectorAll(s)];
 
-  const $$ = (selector, root = document) =>
-    [...root.querySelectorAll(selector)];
-
-  const esc = value =>
-    String(value ?? "").replace(/[&<>"']/g, ch => ({
+  const esc = v =>
+    String(v ?? "").replace(/[&<>"']/g, x => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
-    })[ch]);
-
-  const digits = value =>
-    String(value ?? "").replace(/\D/g, "");
-
-  const dateNow = () => {
-    const d = new Date();
-
-    return [
-      d.getFullYear(),
-      String(d.getMonth() + 1).padStart(2, "0"),
-      String(d.getDate()).padStart(2, "0")
-    ].join("-");
-  };
-
-  const dateBR = value =>
-    /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))
-      ? value.split("-").reverse().join("/")
-      : (value || "—");
-
-  const monthBR = value =>
-    /^\d{4}-\d{2}$/.test(String(value || ""))
-      ? `${value.slice(5)}/${value.slice(0, 4)}`
-      : (value || "—");
+    })[x]);
 
   const uid = () =>
-    globalThis.crypto?.randomUUID?.() ||
+    globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  const number = value => {
-    if (typeof value === "number") {
-      return Number.isFinite(value) ? value : 0;
-    }
-
-    let s = String(value ?? "")
+  const amount = v => {
+    const s = String(v ?? "")
       .trim()
-      .replace(/\s|R\$/g, "");
+      .replace(/R\$|\s/g, "");
 
-    if (s.includes(",")) {
-      s = s.replace(/\./g, "").replace(",", ".");
-    }
+    const n = Number(
+      s.includes(",")
+        ? s.replace(/\./g, "").replace(",", ".")
+        : s
+    );
 
-    const n = Number(s);
     return Number.isFinite(n) ? n : 0;
   };
 
-  const positive = value =>
-    Math.max(0, number(value));
+  const positive = v => Math.max(0, amount(v));
 
-  const brl = value =>
+  const brl = v =>
     new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL"
-    }).format(number(value));
+    }).format(amount(v));
 
-  const total = (array, field) =>
-    array.reduce(
-      (sum, row) => sum + positive(row[field]),
-      0
-    );
+  const digits = v =>
+    String(v ?? "").replace(/\D/g, "");
 
-  const formatCnpj = value =>
-    digits(value).replace(
+  const formatCNPJ = v =>
+    digits(v).replace(
       /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
       "$1.$2.$3/$4-$5"
     );
 
-  const keyName = value =>
-    String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
-
-  const cleanQuery = value =>
-    String(value ?? "")
+  const clean = v =>
+    String(v ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase();
 
-  const field = (form, name) =>
-    form.elements.namedItem(name);
+  const dateISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1)
+      .padStart(2, "0")}-${String(d.getDate())
+      .padStart(2, "0")}`;
+  };
+
+  const dateBR = v =>
+    /^\d{4}-\d{2}-\d{2}$/.test(v || "")
+      ? v.split("-").reverse().join("/")
+      : (v || "—");
+
+  const monthBR = v =>
+    /^\d{4}-\d{2}$/.test(v || "")
+      ? v.slice(5) + "/" + v.slice(0, 4)
+      : (v || "—");
 
   const emptyDB = () => ({
     suppliers: [],
@@ -131,18 +91,80 @@
     pendencias: []
   });
 
-  let db;
-  let editing = { kind: null, id: null };
+  const sum = (rows, key = "valor") =>
+    rows.reduce(
+      (acc, r) => acc + positive(r[key]),
+      0
+    );
+
+  let db = emptyDB();
+  let editing = { kind: "", id: null };
   let toastTimer;
-  let blockedStorage = false;
+  let locked = false;
 
-  // ========================================
-  // ARMAZENAMENTO
-  // ========================================
+  const supplier = id =>
+    db.suppliers.find(s => s.id === id);
 
-  function readDB() {
+  const contract = id =>
+    db.contracts.find(c => c.id === id);
+
+  const company = c =>
+    supplier(c?.supplier)?.nome ||
+    "Fornecedor não localizado";
+
+  const contractLabel = c =>
+    `${c.numero || c.processo || "Sem identificação"} — ${company(c)}`;
+
+  const status = c =>
+    !c.vigenciaInicial || !c.vigenciaFinal
+      ? "Sem vigência"
+      : c.vigenciaInicial > dateISO()
+        ? "A iniciar"
+        : c.vigenciaFinal < dateISO()
+          ? "Encerrado"
+          : "Vigente";
+
+  const emptyRows = count => `
+    <tr>
+      <td colspan="${count}" class="empty">
+        Nenhum registro encontrado.
+      </td>
+    </tr>
+  `;
+
+  const pill = text => `
+    <span class="pill ${
+      {
+        "Vigente": "green",
+        "Concluído": "green",
+        "A iniciar": "blue",
+        "Encerrado": "red",
+        "Pendente": "orange"
+      }[text] || ""
+    }">${esc(text)}</span>
+  `;
+
+  // ==========================================
+  // NOTIFICAÇÕES E ARMAZENAMENTO
+  // ==========================================
+
+  function toast(message) {
+    const box = $("#toast");
+
+    box.textContent = message;
+    box.classList.add("visible");
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(
+      () => box.classList.remove("visible"),
+      3600
+    );
+  }
+
+  function read() {
     try {
-      const raw = localStorage.getItem(KEY);
+      const raw = localStorage.getItem(STORE);
 
       if (!raw) return emptyDB();
 
@@ -153,17 +175,17 @@
         typeof data !== "object" ||
         Array.isArray(data)
       ) {
-        throw Error("Formato inválido");
+        throw Error("Dados inválidos");
       }
 
       return {
         ...data,
         ...Object.fromEntries(
-          TYPES.map(k => [
-            k,
-            Array.isArray(data[k])
-              ? data[k].filter(
-                  v => v && typeof v === "object"
+          TYPES.map(key => [
+            key,
+            Array.isArray(data[key])
+              ? data[key].filter(
+                  x => x && typeof x === "object"
                 )
               : []
           ])
@@ -171,156 +193,151 @@
       };
 
     } catch (error) {
-      blockedStorage = true;
-
-      console.error(
-        "CAF: não foi possível ler dados salvos",
-        error
-      );
-
+      console.error(error);
+      locked = true;
       return emptyDB();
-    }
-  }
-
-  function toast(message) {
-    const box = $("#toast");
-
-    box.textContent = message;
-    box.classList.add("visible");
-
-    clearTimeout(toastTimer);
-
-    toastTimer = setTimeout(() => {
-      box.classList.remove("visible");
-    }, 4200);
-  }
-
-  function persist(next) {
-    if (blockedStorage) {
-      toast(
-        "Armazenamento inválido ou indisponível. " +
-        "Recupere os dados antes de continuar."
-      );
-      return false;
-    }
-
-    try {
-      localStorage.setItem(KEY, JSON.stringify(next));
-
-      db = next;
-      renderAll();
-
-      return true;
-
-    } catch (error) {
-      console.error("CAF: erro ao gravar", error);
-
-      toast(
-        "Não foi possível salvar. Verifique o " +
-        "armazenamento do navegador."
-      );
-
-      return false;
     }
   }
 
   const clone = () =>
     JSON.parse(JSON.stringify(db));
 
-  // ========================================
-  // RELACIONAMENTOS
-  // ========================================
-
-  const supplier = id =>
-    db.suppliers.find(s => s.id === id);
-
-  const contract = id =>
-    db.contracts.find(c => c.id === id);
-
-  const companyName = c =>
-    supplier(c?.supplier)?.nome ||
-    "Empresa não identificada";
-
-  const contractName = c =>
-    `${c?.numero || c?.processo || "Sem número"} — ${companyName(c)}`;
-
-  function contractStatus(c) {
-    const today = dateNow();
-
-    if (
-      c.vigenciaFinal &&
-      c.vigenciaFinal < today
-    ) {
-      return "Encerrado";
-    }
-
-    if (
-      c.vigenciaInicial &&
-      c.vigenciaInicial > today
-    ) {
-      return "A iniciar";
-    }
-
-    return "Vigente";
-  }
-
-  function sumYear(year) {
-    return db.payments
-      .filter(p =>
-        String(p.data || "").startsWith(String(year)) &&
-        contract(p.contractId)
-      )
-      .reduce(
-        (sum, p) => sum + positive(p.valor),
-        0
+  function save(next) {
+    if (locked) {
+      toast(
+        "Armazenamento indisponível. " +
+        "Verifique o backup antes de editar."
       );
+      return false;
+    }
+
+    try {
+      localStorage.setItem(STORE, JSON.stringify(next));
+
+      db = next;
+      renderAll();
+      return true;
+
+    } catch (error) {
+      console.error(error);
+      toast("Não foi possível salvar neste navegador.");
+      return false;
+    }
   }
 
-  const statusTag = label => {
-    const colors = {
-      "Vigente": "green",
-      "Concluído": "green",
-      "A iniciar": "blue",
-      "Encerrado": "red",
-      "Pendente": "orange"
+  // ==========================================
+  // LIMPEZA DOS REGISTROS ARTIFICIAIS ANTIGOS
+  // ==========================================
+
+  function migrateLegacyExamples() {
+    if (locked) return;
+
+    const oldSuppliers = db.suppliers.filter(
+      s =>
+        s.nome === "Fornecedor Exemplo (DEMO)" &&
+        digits(s.cnpj) === "12345678000190"
+    );
+
+    const idsSuppliers = new Set(
+      oldSuppliers.map(s => s.id)
+    );
+
+    const oldContracts = db.contracts.filter(
+      c =>
+        idsSuppliers.has(c.supplier) &&
+        c.numero === "DEMO-01/2026" &&
+        c.processo === "00000.000000/2026-00"
+    );
+
+    const idsContracts = new Set(
+      oldContracts.map(c => c.id)
+    );
+
+    const oldPayments = db.payments.filter(
+      p => idsContracts.has(p.contractId)
+    );
+
+    const oldPending = db.pendencias.filter(
+      p => idsContracts.has(p.contractId)
+    );
+
+    if (
+      !oldContracts.length &&
+      !oldSuppliers.length
+    ) {
+      return;
+    }
+
+    const archived = {
+      suppliers: oldSuppliers,
+      contracts: oldContracts,
+      payments: oldPayments,
+      pendencias: oldPending,
+      createdAt: new Date().toISOString()
     };
 
-    return `
-      <span class="pill ${colors[label] || ""}">
-        ${esc(label)}
-      </span>
-    `;
-  };
+    const next = clone();
 
-  const noRows = count => `
-    <tr>
-      <td class="empty" colspan="${count}">
-        Nenhum registro encontrado.
-      </td>
-    </tr>
-  `;
+    next.suppliers = next.suppliers.filter(
+      s => !idsSuppliers.has(s.id)
+    );
 
-  // ========================================
+    next.contracts = next.contracts.filter(
+      c => !idsContracts.has(c.id)
+    );
+
+    next.payments = next.payments.filter(
+      p => !idsContracts.has(p.contractId)
+    );
+
+    next.pendencias = next.pendencias.filter(
+      p => !idsContracts.has(p.contractId)
+    );
+
+    try {
+      if (!localStorage.getItem(ARCHIVE)) {
+        localStorage.setItem(
+          ARCHIVE,
+          JSON.stringify(archived)
+        );
+      }
+
+      localStorage.setItem(
+        STORE,
+        JSON.stringify(next)
+      );
+
+      db = next;
+
+    } catch (error) {
+      console.warn(
+        "Não foi possível arquivar os registros antigos",
+        error
+      );
+    }
+  }
+
+  // ==========================================
   // SELETORES
-  // ========================================
+  // ==========================================
 
-  function refreshSelectors() {
-    const companySelect = $("#contractSupplier");
-    const oldCompany = companySelect.value;
+  function refreshSelects() {
+    const a = $("#contractSupplier");
+    const current = a.value;
 
-    companySelect.replaceChildren(
-      new Option("Selecione uma empresa", "")
+    a.replaceChildren(
+      new Option("Selecione o fornecedor", "")
     );
 
     [...db.suppliers]
-      .sort((a, b) =>
-        String(a.nome).localeCompare(
-          String(b.nome),
+      .sort((x, y) =>
+        (x.nome || "").localeCompare(
+          y.nome || "",
           "pt-BR"
         )
       )
       .forEach(s => {
-        companySelect.add(
+        a.add(
           new Option(
             `${s.nome} — ${s.cnpj}`,
             s.id
@@ -328,278 +345,255 @@
         );
       });
 
-    companySelect.value =
-      db.suppliers.some(s => s.id === oldCompany)
-        ? oldCompany
-        : "";
+    a.value = db.suppliers.some(
+      s => s.id === current
+    ) ? current : "";
 
-    for (const select of $$('[data-contract-select]')) {
-      const old = select.value;
+    $$('[data-contract-select]').forEach(
+      select => {
+        const old = select.value;
 
-      select.replaceChildren(
-        new Option("Selecione um contrato", "")
-      );
+        select.replaceChildren(
+          new Option("Selecione o contrato", "")
+        );
 
-      [...db.contracts]
-        .sort((a, b) =>
-          contractName(a).localeCompare(
-            contractName(b),
-            "pt-BR"
+        [...db.contracts]
+          .sort((x, y) =>
+            contractLabel(x).localeCompare(
+              contractLabel(y),
+              "pt-BR"
+            )
           )
-        )
-        .forEach(c => {
-          select.add(
-            new Option(contractName(c), c.id)
-          );
-        });
+          .forEach(c => {
+            select.add(
+              new Option(
+                contractLabel(c),
+                c.id
+              )
+            );
+          });
 
-      select.value =
-        db.contracts.some(c => c.id === old)
-          ? old
-          : "";
-    }
+        select.value = db.contracts.some(
+          c => c.id === old
+        ) ? old : "";
+      }
+    );
   }
 
-  // ========================================
-  // DASHBOARD FINANCEIRO
-  // ========================================
+  function paidInYear(year = YEAR) {
+    return sum(
+      db.payments.filter(
+        p =>
+          (p.data || "").startsWith(String(year)) &&
+          contract(p.contractId)
+      )
+    );
+  }
+
+  function outstanding() {
+    return db.pendencias.filter(
+      p =>
+        p.status !== "concluido" &&
+        contract(p.contractId)
+    );
+  }
+
+  // ==========================================
+  // DASHBOARD
+  // ==========================================
 
   function renderDashboard() {
-    const open = db.pendencias.filter(p =>
-      p.status !== "concluido" &&
-      contract(p.contractId)
-    );
-
-    const planned = total(
+    const open = outstanding();
+    const paid = paidInYear();
+    const planned = sum(
       db.contracts,
       "ploa2026"
     );
 
-    const paid = sumYear(YEAR);
-
-    const countActive = db.contracts.filter(
-      c => contractStatus(c) === "Vigente"
-    ).length;
-
-    const pendingTotal = total(open, "valor");
-
-    const ratio = planned
-      ? paid / planned * 100
-      : null;
-
-    // DESTAQUE PRINCIPAL
-
-    $("#heroValue").textContent = brl(paid);
-
-    $("#heroRatio").textContent =
-      ratio === null
-        ? "Sem PLOA"
-        : `${ratio.toFixed(1).replace(".", ",")}%`;
-
-    $("#heroBar").style.width =
-      `${Math.min(100, Math.max(0, ratio || 0))}%`;
-
-    $("#heroBalance").textContent = planned
-      ? `PLOA: ${brl(planned)} · Diferença de referência: ${brl(planned - paid)}`
-      : "Cadastre os valores de PLOA para calcular a proporção.";
-
-    // QUATRO INDICADORES
-
     const indicators = [
       [
         "Contratos vigentes",
-        countActive,
-        `${db.contracts.length} contratos cadastrados`,
+        db.contracts.filter(
+          c => status(c) === "Vigente"
+        ).length,
+        `${db.contracts.length} contrato(s) cadastrado(s)`,
         "",
         "▤"
       ],
       [
         `Pagamentos ${YEAR}`,
         brl(paid),
-        "Pagamentos efetivamente lançados",
+        "Pagamentos efetivamente registrados",
         "green",
         "↗"
       ],
       [
         "Pendências em aberto",
-        brl(pendingTotal),
-        `${open.length} registro(s) pendente(s)`,
+        brl(sum(open)),
+        `${open.length} competência(s) em aberto`,
         "orange",
         "◷"
       ],
       [
         `PLOA ${YEAR}`,
         brl(planned),
-        "Somatório informado nos contratos",
+        "Somatório do planejamento informado",
         "violet",
-        "◉"
+        "◫"
       ]
     ];
 
     $("#kpiGrid").innerHTML = indicators
-      .map(([label, value, note, tone, icon]) => `
-        <article class="kpi ${tone}">
+      .map(([name, value, detail, tone, icon]) => `
+        <div class="kpi ${tone}">
           <div class="kpi-name">
-            ${esc(label)}
+            ${esc(name)}
             <span>${icon}</span>
           </div>
           <strong>${esc(value)}</strong>
-          <small>${esc(note)}</small>
-        </article>
+          <small>${esc(detail)}</small>
+        </div>
       `)
       .join("");
 
     // GRÁFICO MENSAL
 
-    const now = new Date();
+    const n = new Date();
 
     const months = Array.from(
       { length: 6 },
       (_, i) => {
         const d = new Date(
-          now.getFullYear(),
-          now.getMonth() - 5 + i,
+          n.getFullYear(),
+          n.getMonth() - 5 + i,
           1
         );
 
-        return (
-          d.getFullYear() +
-          "-" +
-          String(d.getMonth() + 1).padStart(2, "0")
-        );
+        return `${d.getFullYear()}-${String(
+          d.getMonth() + 1
+        ).padStart(2, "0")}`;
       }
     );
 
-    const series = months.map(month => ({
-      month,
+    const graph = months.map(m => ({
+      month: m,
 
-      paid: db.payments
-        .filter(p =>
-          (p.data || "").slice(0, 7) === month &&
-          contract(p.contractId)
+      paid: sum(
+        db.payments.filter(
+          p =>
+            (p.data || "").slice(0, 7) === m &&
+            contract(p.contractId)
         )
-        .reduce(
-          (sum, p) => sum + positive(p.valor),
-          0
-        ),
+      ),
 
-      open: open
-        .filter(p => p.competencia === month)
-        .reduce(
-          (sum, p) => sum + positive(p.valor),
-          0
+      open: sum(
+        open.filter(
+          p => p.competencia === m
         )
+      )
     }));
 
-    const max = Math.max(
+    const highest = Math.max(
       1,
-      ...series.flatMap(
-        x => [x.paid, x.open]
+      ...graph.flatMap(
+        g => [g.paid, g.open]
       )
     );
 
-    $("#monthlyChart").innerHTML = series
-      .map(x => `
+    $("#monthlyChart").innerHTML = graph
+      .map(g => `
         <div class="bar-group">
-
           <div class="bars">
-
-            <div
-              class="bar paid"
-              style="height:${x.paid / max * 100}%"
-              title="Pagos: ${esc(brl(x.paid))}">
+            <div class="bar paid"
+              style="height:${(g.paid / highest) * 100}%"
+              title="Pagos: ${esc(brl(g.paid))}">
             </div>
-
-            <div
-              class="bar waiting"
-              style="height:${x.open / max * 100}%"
-              title="Pendentes: ${esc(brl(x.open))}">
+            <div class="bar waiting"
+              style="height:${(g.open / highest) * 100}%"
+              title="Pendentes: ${esc(brl(g.open))}">
             </div>
-
           </div>
-
-          <span>${esc(monthBR(x.month))}</span>
-
+          <span>${esc(monthBR(g.month))}</span>
         </div>
       `)
       .join("");
 
     // GRÁFICO DE VIGÊNCIA
 
-    const statuses = [
+    const names = [
       "Vigente",
       "A iniciar",
-      "Encerrado"
+      "Encerrado",
+      "Sem vigência"
     ];
 
     const colors = [
-      "#248c75",
-      "#478da0",
-      "#d98e69"
+      "#148c65",
+      "#2c80c0",
+      "#d45e66",
+      "#d4dce5"
     ];
 
-    const counts = statuses.map(s =>
-      db.contracts.filter(
-        c => contractStatus(c) === s
+    const counts = names.map(
+      name => db.contracts.filter(
+        c => status(c) === name
       ).length
     );
 
-    let pos = 0;
+    let start = 0;
 
     $("#donut").style.background =
       db.contracts.length
         ? `conic-gradient(${
-            counts.map((n, i) => {
-              const start = pos;
-
-              pos += n / db.contracts.length * 100;
-
-              return `${colors[i]} ${start}% ${pos}%`;
-            }).join(", ")
+            counts.map((count, i) => {
+              const from = start;
+              start += count / db.contracts.length * 100;
+              return `${colors[i]} ${from}% ${start}%`;
+            }).join(",")
           })`
-        : "#e6ece9";
+        : "#e6edf3";
 
-    $("#donutLegend").innerHTML =
-      statuses.map((s, i) => `
+    $("#donutLegend").innerHTML = names
+      .map((name, i) => `
         <div>
           <span>
             <i style="background:${colors[i]}"></i>
-            ${s}
+            ${name}
           </span>
           <b>${counts[i]}</b>
         </div>
-      `).join("");
+      `)
+      .join("");
 
-    // ÚLTIMOS PAGAMENTOS
+    // PAGAMENTOS RECENTES
 
     const recent = db.payments
-      .filter(p => contract(p.contractId))
+      .filter(
+        p => contract(p.contractId)
+      )
       .slice()
       .sort((a, b) =>
         (b.data || "").localeCompare(a.data || "")
       )
       .slice(0, 5);
 
-    $("#recentPayments").innerHTML =
-      recent.map(p => `
+    $("#recentPayments").innerHTML = recent
+      .map(p => `
         <div class="activity-row">
           <div>
             <strong>
-              ${esc(companyName(contract(p.contractId)))}
+              ${esc(company(contract(p.contractId)))}
             </strong>
-
             <small>
               ${esc(dateBR(p.data))} ·
               ${esc(contract(p.contractId)?.numero || "Contrato")}
             </small>
           </div>
-
           <b>${brl(p.valor)}</b>
         </div>
-      `).join("") ||
-      `<p class="empty-block">
-        Nenhum pagamento registrado.
-      </p>`;
+      `)
+      .join("") ||
+      `<p class="empty-block">Nenhum pagamento cadastrado.</p>`;
 
     // PENDÊNCIAS RECENTES
 
@@ -615,48 +609,41 @@
         <div class="activity-row">
           <div>
             <strong>
-              ${esc(companyName(contract(p.contractId)))}
+              ${esc(company(contract(p.contractId)))}
             </strong>
-
             <small>
               Competência ${esc(monthBR(p.competencia))}
             </small>
           </div>
-
-          <b class="orange-text">
-            ${brl(p.valor)}
-          </b>
+          <b class="orange-text">${brl(p.valor)}</b>
         </div>
       `)
       .join("") ||
-      `<p class="empty-block">
-        Nenhuma pendência em aberto.
-      </p>`;
+      `<p class="empty-block">Nenhuma pendência em aberto.</p>`;
 
     $("#dashboardNote").textContent =
-      "Concluído não significa pago: somente registros " +
-      "em Pagamentos integram os valores realizados.";
+      "O status 'Concluída' não registra automaticamente " +
+      "um pagamento realizado.";
   }
 
-  // ========================================
+  // ==========================================
   // FORNECEDORES
-  // ========================================
+  // ==========================================
 
   function renderCompanies() {
-    const query = cleanQuery(
+    const q = clean(
       $("#filterCompanies").value
     );
 
-    const rows = db.suppliers.filter(s =>
-      cleanQuery(`${s.nome} ${s.cnpj}`).includes(query)
+    const rows = db.suppliers.filter(
+      s => clean(`${s.nome} ${s.cnpj}`).includes(q)
     );
 
-    $("#companiesRows").innerHTML =
-      rows.map(s => `
+    $("#companiesRows").innerHTML = rows
+      .map(s => `
         <tr>
           <td><b>${esc(s.nome)}</b></td>
           <td>${esc(s.cnpj)}</td>
-
           <td>
             ${
               db.contracts.filter(
@@ -664,183 +651,150 @@
               ).length
             }
           </td>
-
           <td class="actions">
-            <button
-              data-action="edit-company"
-              data-id="${esc(s.id)}">
-              Editar
-            </button>
-
-            <button
-              class="danger-text"
+            <button data-action="edit-company"
+              data-id="${esc(s.id)}">Editar</button>
+            <button class="danger-text"
               data-action="delete-company"
-              data-id="${esc(s.id)}">
-              Excluir
-            </button>
+              data-id="${esc(s.id)}">Excluir</button>
           </td>
         </tr>
-      `).join("") || noRows(4);
+      `)
+      .join("") || emptyRows(4);
 
     $("#companiesTotal").textContent =
-      `${rows.length} empresa(s)`;
+      `${rows.length} fornecedor(es)`;
   }
 
-  // ========================================
+  // ==========================================
   // CONTRATOS
-  // ========================================
+  // ==========================================
 
   function renderContracts() {
-    const query = cleanQuery(
+    const q = clean(
       $("#filterContracts").value
     );
 
-    const rows = db.contracts.filter(c =>
-      cleanQuery(
-        `${companyName(c)} ${c.numero} ${c.processo}`
-      ).includes(query)
+    const rows = db.contracts.filter(
+      c => clean(
+        `${company(c)} ${c.numero} ${c.processo}`
+      ).includes(q)
     );
 
-    $("#contractsRows").innerHTML =
-      rows.map(c => `
+    $("#contractsRows").innerHTML = rows
+      .map(c => `
         <tr>
           <td>
             <b>${esc(c.numero || "—")}</b>
             <small>${esc(c.processo || "—")}</small>
           </td>
-
-          <td>${esc(companyName(c))}</td>
+          <td>${esc(company(c))}</td>
           <td>${esc(dateBR(c.vigenciaFinal))}</td>
           <td>${brl(c.valorGlobal)}</td>
-          <td>${statusTag(contractStatus(c))}</td>
-
+          <td>${pill(status(c))}</td>
           <td class="actions">
-            <button
-              data-action="edit-contract"
-              data-id="${esc(c.id)}">
-              Editar
-            </button>
-
-            <button
-              class="danger-text"
+            <button data-action="edit-contract"
+              data-id="${esc(c.id)}">Editar</button>
+            <button class="danger-text"
               data-action="delete-contract"
-              data-id="${esc(c.id)}">
-              Excluir
-            </button>
+              data-id="${esc(c.id)}">Excluir</button>
           </td>
         </tr>
-      `).join("") || noRows(6);
+      `)
+      .join("") || emptyRows(6);
 
     $("#contractsTotal").textContent =
       `${rows.length} contrato(s)`;
   }
 
-  // ========================================
+  // ==========================================
   // PAGAMENTOS
-  // ========================================
+  // ==========================================
 
   function renderPayments() {
-    const query = cleanQuery(
+    const q = clean(
       $("#filterPayments").value
     );
 
     const rows = db.payments
-      .filter(p =>
-        contract(p.contractId) &&
-        cleanQuery(
-          `${companyName(contract(p.contractId))}
-           ${contract(p.contractId)?.numero}
-           ${p.descricao} ${p.data}`
-        ).includes(query)
+      .filter(
+        p =>
+          contract(p.contractId) &&
+          clean(
+            `${company(contract(p.contractId))}
+             ${contract(p.contractId)?.numero}
+             ${p.descricao} ${p.data}`
+          ).includes(q)
       )
       .slice()
       .sort((a, b) =>
         (b.data || "").localeCompare(a.data || "")
       );
 
-    $("#paymentsRows").innerHTML =
-      rows.map(p => `
+    $("#paymentsRows").innerHTML = rows
+      .map(p => `
         <tr>
           <td>${esc(dateBR(p.data))}</td>
-
           <td>
-            ${esc(companyName(contract(p.contractId)))}
+            ${esc(company(contract(p.contractId)))}
           </td>
-
           <td>
             ${esc(contract(p.contractId)?.numero || "—")}
           </td>
-
           <td>${esc(p.descricao || "—")}</td>
-
-          <td>
-            <b>${brl(p.valor)}</b>
-          </td>
-
+          <td><b>${brl(p.valor)}</b></td>
           <td class="actions">
-            <button
-              data-action="edit-payment"
-              data-id="${esc(p.id)}">
-              Editar
-            </button>
-
-            <button
-              class="danger-text"
+            <button data-action="edit-payment"
+              data-id="${esc(p.id)}">Editar</button>
+            <button class="danger-text"
               data-action="delete-payment"
-              data-id="${esc(p.id)}">
-              Excluir
-            </button>
+              data-id="${esc(p.id)}">Excluir</button>
           </td>
         </tr>
-      `).join("") || noRows(6);
+      `)
+      .join("") || emptyRows(6);
 
     $("#paymentsTotal").textContent =
-      `${rows.length} pagamento(s) · ${brl(total(rows, "valor"))}`;
+      `${rows.length} pagamento(s) · ${brl(sum(rows))}`;
   }
 
-  // ========================================
-  // PAGAMENTOS PENDENTES
-  // ========================================
+  // ==========================================
+  // PENDÊNCIAS
+  // ==========================================
 
   function renderPending() {
-    const query = cleanQuery(
+    const q = clean(
       $("#filterPending").value
     );
 
-    const choice = $("#pendingStatus").value;
-
-    const open = db.pendencias.filter(p =>
-      p.status !== "concluido" &&
-      contract(p.contractId)
-    );
+    const filter = $("#pendingStatus").value;
+    const open = outstanding();
 
     $("#pendingTopline").textContent =
-      `${open.length} pagamento(s) pendente(s) · ` +
-      `Total: ${brl(total(open, "valor"))}`;
+      `${open.length} pendente(s) · ${brl(sum(open))}`;
 
     const rows = db.pendencias
       .filter(p => {
         const c = contract(p.contractId);
 
-        const statusOK =
-          choice === "todos" ||
-          (
-            choice === "concluido"
-              ? p.status === "concluido"
-              : p.status !== "concluido"
-          );
-
         return (
           c &&
-          statusOK &&
-          cleanQuery(
-            `${companyName(c)}
+          (
+            filter === "todos" ||
+            (
+              filter === "concluido"
+                ? p.status === "concluido"
+                : p.status !== "concluido"
+            )
+          ) &&
+          clean(
+            `${company(c)}
              ${supplier(c.supplier)?.cnpj}
              ${c.numero}
              ${c.processo}
              ${p.competencia}
              ${p.referencia}`
-          ).includes(query)
+          ).includes(q)
         );
       })
       .slice()
@@ -850,365 +804,290 @@
         )
       );
 
-    $("#pendingCards").innerHTML =
-      rows.map(p => {
+    $("#pendingCards").innerHTML = rows
+      .map(p => {
         const c = contract(p.contractId);
         const done = p.status === "concluido";
 
         return `
           <article class="pending-card">
-
             <div class="pending-detail">
-              <h3>${esc(companyName(c))}</h3>
+              <h3>${esc(company(c))}</h3>
 
               <div class="metadata">
                 <span>
                   Contrato:
                   <b>${esc(c.numero || "—")}</b>
                 </span>
-
                 <span>
                   CNPJ:
                   <b>${esc(supplier(c.supplier)?.cnpj || "—")}</b>
                 </span>
-
                 <span>
-                  Mês:
+                  Competência:
                   <b>${esc(monthBR(p.competencia))}</b>
                 </span>
               </div>
 
-              <p>
-                Processo: ${esc(c.processo || "—")}
-              </p>
+              <p>Processo: ${esc(c.processo || "—")}</p>
             </div>
 
             <div class="pending-right">
-              ${
-                statusTag(
-                  done ? "Concluído" : "Pendente"
-                )
-              }
-
+              ${pill(done ? "Concluído" : "Pendente")}
               <small>
                 ${esc(p.referencia || "Sem referência")}
               </small>
-
               <label>Valor líquido</label>
-
               <strong>${brl(p.valor)}</strong>
             </div>
 
             <div class="pending-actions">
-
-              <button
-                class="btn light small"
+              <button class="btn outline small"
                 data-action="edit-pending"
                 data-id="${esc(p.id)}">
                 Editar
               </button>
 
-              <button
-                class="btn light small danger-text"
+              <button class="btn outline small danger"
                 data-action="delete-pending"
                 data-id="${esc(p.id)}">
                 Excluir
               </button>
 
-              <button
-                class="btn ${done ? "light" : "success"} small"
+              <button class="btn ${done ? "outline" : "success"} small"
                 data-action="toggle-pending"
                 data-id="${esc(p.id)}">
-                ${
-                  done
-                    ? "Reabrir"
-                    : "✓ Marcar como concluído"
-                }
+                ${done ? "Reabrir" : "Marcar como concluída"}
               </button>
-
             </div>
-
           </article>
         `;
-      }).join("") ||
-      `<p class="empty-block">
-        Nenhuma pendência encontrada.
-      </p>`;
+      })
+      .join("") ||
+      `<p class="empty-block">Nenhuma pendência encontrada.</p>`;
   }
 
-  // ========================================
-  // ORÇAMENTO E PLOA
-  // ========================================
+  // ==========================================
+  // ORÇAMENTO
+  // ==========================================
 
   function renderBudget() {
-    const planned = total(
+    const plan = sum(
       db.contracts,
       "ploa2026"
     );
 
-    const paid = sumYear(YEAR);
+    const paid = paidInYear();
 
-    const past = total(
+    const previous = sum(
       db.contracts,
       "gastoAnual2025"
     );
 
-    const ratio = planned
-      ? paid / planned * 100
+    const ratio = plan
+      ? paid / plan * 100
       : null;
 
     $("#budgetSummary").innerHTML = [
-      [
-        "PLOA 2026 (cadastrado)",
-        brl(planned)
-      ],
-      [
-        "Pagamentos registrados em 2026",
-        brl(paid)
-      ],
-      [
-        "Gasto anual 2025 (informado)",
-        brl(past)
-      ]
-    ].map(([label, value]) => `
-      <div class="mini-kpi">
-        <small>${label}</small>
-        <b>${value}</b>
-      </div>
-    `).join("");
+      ["PLOA 2026 informado", brl(plan)],
+      ["Pagamentos em 2026", brl(paid)],
+      ["Gasto anual 2025 informado", brl(previous)]
+    ]
+      .map(([text, value]) => `
+        <div class="mini-kpi">
+          <small>${text}</small>
+          <b>${value}</b>
+        </div>
+      `)
+      .join("");
 
     $("#budgetBar").style.width =
       `${Math.min(100, Math.max(0, ratio || 0))}%`;
 
     $("#budgetProgress").textContent =
       ratio === null
-        ? "Sem PLOA informado"
-        : `Pagamentos / PLOA: ${
-            ratio.toFixed(1).replace(".", ",")
-          }%`;
+        ? "PLOA ainda não informado"
+        : `${ratio.toFixed(1).replace(".", ",")}% registrado`;
 
-    $("#budgetRows").innerHTML =
-      db.contracts.map(c => {
-        const paidContract = db.payments
-          .filter(p =>
-            p.contractId === c.id &&
-            (p.data || "").startsWith(String(YEAR))
+    $("#budgetRows").innerHTML = db.contracts
+      .map(c => {
+        const paid = sum(
+          db.payments.filter(
+            p =>
+              p.contractId === c.id &&
+              (p.data || "").startsWith(String(YEAR))
           )
-          .reduce(
-            (sum, p) => sum + positive(p.valor),
-            0
-          );
+        );
 
-        const percent = positive(c.ploa2026)
-          ? `${
-              (
-                paidContract /
-                positive(c.ploa2026) *
-                100
-              ).toFixed(1).replace(".", ",")
-            }%`
+        const pct = positive(c.ploa2026)
+          ? `${(paid / positive(c.ploa2026) * 100)
+              .toFixed(1).replace(".", ",")}%`
           : "—";
 
         return `
           <tr>
             <td>
-              ${esc(companyName(c))}
+              ${esc(company(c))}
               <small>
                 ${esc(c.numero || c.processo || "—")}
               </small>
             </td>
-
             <td>${brl(c.gastoAnual2025)}</td>
             <td>${brl(c.ploa2026)}</td>
-            <td>${brl(paidContract)}</td>
-            <td>${percent}</td>
-
+            <td>${brl(paid)}</td>
+            <td>${pct}</td>
             <td class="actions">
-              <button
-                data-action="edit-contract"
+              <button data-action="edit-contract"
                 data-id="${esc(c.id)}">
                 Editar
               </button>
             </td>
           </tr>
         `;
-      }).join("") || noRows(6);
+      })
+      .join("") || emptyRows(6);
   }
 
-  // ========================================
-  // RELATÓRIOS E CONFIGURAÇÕES
-  // ========================================
+  // ==========================================
+  // RELATÓRIOS
+  // ==========================================
 
   function renderReports() {
-    const open = db.pendencias.filter(p =>
-      p.status !== "concluido" &&
-      contract(p.contractId)
-    );
-
     $("#reportStats").innerHTML = [
       ["Fornecedores", db.suppliers.length],
       ["Contratos", db.contracts.length],
-      ["Pagamentos registrados", db.payments.length],
-      ["Pendências abertas", open.length]
-    ].map(([label, value]) => `
-      <div class="mini-kpi">
-        <small>${label}</small>
-        <b>${value}</b>
-      </div>
-    `).join("");
+      ["Pagamentos", db.payments.length],
+      ["Pendências abertas", outstanding().length]
+    ]
+      .map(([n, v]) => `
+        <div class="mini-kpi">
+          <small>${n}</small>
+          <b>${v}</b>
+        </div>
+      `)
+      .join("");
   }
 
   function renderSettings() {
     $("#storageInfo").textContent =
-      `${db.suppliers.length} empresas · ` +
+      `${db.suppliers.length} fornecedores · ` +
       `${db.contracts.length} contratos · ` +
       `${db.payments.length} pagamentos · ` +
       `${db.pendencias.length} acompanhamentos`;
   }
 
   function renderAll() {
-    refreshSelectors();
+    refreshSelects();
     renderDashboard();
-    renderCompanies();
     renderContracts();
     renderPayments();
     renderPending();
     renderBudget();
+    renderCompanies();
     renderReports();
     renderSettings();
   }
 
-  // ========================================
+  // ==========================================
   // NAVEGAÇÃO
-  // ========================================
+  // ==========================================
 
-  const titles = {
-    dashboard: "Dashboard Financeiro",
-    contracts: "Gestão de Contratos",
-    payments: "Histórico de Pagamentos",
-    pending: "Pagamentos Pendentes",
+  const TITLES = {
+    dashboard: "Visão geral",
+    contracts: "Contratos",
+    payments: "Pagamentos",
+    pending: "Pendências",
     budget: "Orçamento e PLOA",
     companies: "Fornecedores",
-    reports: "Relatórios",
+    reports: "Importar e exportar",
     settings: "Configurações"
   };
 
-  function navigate(view) {
-    if (!titles[view]) return;
+  function navigate(to) {
+    if (!TITLES[to]) return;
 
-    $$(".view").forEach(section => {
-      section.hidden =
-        section.id !== `view-${view}`;
-    });
+    $$(".view").forEach(
+      v => v.hidden = v.id !== `view-${to}`
+    );
 
-    $$(".nav-link[data-view]").forEach(button => {
-      button.classList.toggle(
+    $$(".nav-item").forEach(b => {
+      b.classList.toggle(
         "active",
-        button.dataset.view === view
+        b.dataset.view === to
       );
 
-      if (button.dataset.view === view) {
-        button.setAttribute("aria-current", "page");
+      if (b.dataset.view === to) {
+        b.setAttribute("aria-current", "page");
       } else {
-        button.removeAttribute("aria-current");
+        b.removeAttribute("aria-current");
       }
     });
 
-    $("#pageTitle").textContent = titles[view];
-
+    $("#pageTitle").textContent = TITLES[to];
     renderAll();
   }
 
-  // ========================================
+  // ==========================================
   // FORMULÁRIOS
-  // ========================================
+  // ==========================================
 
-  function formObject(form) {
-    return Object.fromEntries(
-      new FormData(form).entries()
-    );
-  }
-
-  function fillForm(form, row = {}) {
-    form.reset();
-
-    $$("[name]", form).forEach(el => {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          row,
-          el.name
-        )
-      ) {
-        el.value = row[el.name] ?? "";
-      }
-    });
-  }
-
-  // CÁLCULO DE SERVIÇOS COM PESSOAS
-
-  function calculateCCT() {
-    const form = $("#contractForm");
-
-    const totalValue =
-      positive(field(form, "salario").value) *
-      (
-        1 +
-        positive(field(form, "encargos").value) / 100
-      ) *
-      Math.floor(
-        positive(field(form, "postos").value)
-      ) +
-      positive(field(form, "materiais").value);
-
-    $("#cctTotal").value = brl(totalValue);
-  }
-
-  const dialogs = {
+  const MODALS = {
     company: [
       "companyDialog",
       "companyForm",
       "suppliers",
-      "empresa"
+      "Fornecedor"
     ],
-
     contract: [
       "contractDialog",
       "contractForm",
       "contracts",
-      "contrato"
+      "Contrato"
     ],
-
     payment: [
       "paymentDialog",
       "paymentForm",
       "payments",
-      "pagamento"
+      "Pagamento"
     ],
-
     pending: [
       "pendingDialog",
       "pendingForm",
       "pendencias",
-      "pendência"
+      "Pendência"
     ]
   };
 
-  function openDialog(kind, id = null) {
-    const [
-      dialogId,
-      formId,
-      collection,
-      label
-    ] = dialogs[kind];
+  const values = form =>
+    Object.fromEntries(
+      new FormData(form).entries()
+    );
 
+  function calculateCCT() {
+    const f = $("#contractForm").elements;
+
+    const value =
+      positive(f.namedItem("salario").value) *
+      (
+        1 +
+        positive(f.namedItem("encargos").value) / 100
+      ) *
+      Math.floor(
+        positive(f.namedItem("postos").value)
+      ) +
+      positive(f.namedItem("materiais").value);
+
+    $("#cctTotal").value = brl(value);
+  }
+
+  function showForm(kind, id = null) {
     if (
       kind === "contract" &&
       !db.suppliers.length
     ) {
       toast(
-        "Cadastre um fornecedor antes dos contratos."
+        "Cadastre um fornecedor antes do contrato."
       );
-
       navigate("companies");
       return;
     }
@@ -1217,256 +1096,174 @@
       ["payment", "pending"].includes(kind) &&
       !db.contracts.length
     ) {
-      toast(
-        "Cadastre um contrato antes de registrar pagamentos ou pendências."
-      );
-
+      toast("Cadastre um contrato primeiro.");
       navigate("contracts");
       return;
     }
 
+    const [dialogId, formId, list, label] =
+      MODALS[kind];
+
     editing = { kind, id };
 
-    refreshSelectors();
+    refreshSelects();
 
-    const form = $(`#${formId}`);
+    const form = $("#" + formId);
+    form.reset();
 
-    fillForm(
-      form,
-      db[collection].find(row => row.id === id)
+    const record = db[list].find(
+      x => x.id === id
     );
 
+    if (record) {
+      $$("[name]", form).forEach(input => {
+        if (
+          Object.prototype.hasOwnProperty.call(
+            record,
+            input.name
+          )
+        ) {
+          input.value =
+            record[input.name] ?? "";
+        }
+      });
+    }
+
     if (kind === "payment" && !id) {
-      field(form, "data").value = dateNow();
+      form.elements.namedItem("data").value =
+        dateISO();
     }
 
     if (kind === "pending" && !id) {
-      field(form, "competencia").value =
-        dateNow().slice(0, 7);
+      form.elements.namedItem("competencia").value =
+        dateISO().slice(0, 7);
     }
 
     if (kind === "contract") {
       calculateCCT();
     }
 
-    $(`#${dialogId}Title`).textContent =
-      `${id ? "Editar" : "Cadastrar"} ${label}`;
+    $("#" + dialogId + "Title").textContent =
+      `${id ? "Editar" : "Cadastrar"} ${label.toLowerCase()}`;
 
-    $(`#${dialogId}`).showModal();
+    $("#" + dialogId).showModal();
   }
 
-  // CRIAR OU ATUALIZAR
-
-  function upsert(kind, data) {
-    const [
-      dialogId,
-      ,
-      collection,
-      label
-    ] = dialogs[kind];
+  function upsert(kind, row) {
+    const [dialogId, , list] =
+      MODALS[kind];
 
     const next = clone();
 
-    const index = next[collection].findIndex(
+    const i = next[list].findIndex(
       x => x.id === editing.id
     );
 
-    const item = {
-      ...(
-        index >= 0
-          ? next[collection][index]
-          : {}
-      ),
-
-      ...data,
-
-      id: index >= 0
-        ? editing.id
-        : uid()
+    const obj = {
+      ...(i >= 0 ? next[list][i] : {}),
+      ...row,
+      id: i >= 0 ? editing.id : uid()
     };
 
-    if (index >= 0) {
-      next[collection][index] = item;
+    if (i >= 0) {
+      next[list][i] = obj;
     } else {
-      next[collection].push(item);
+      next[list].push(obj);
     }
 
-    if (persist(next)) {
-      $(`#${dialogId}`).close();
-
-      toast(
-        `${
-          label[0].toUpperCase() +
-          label.slice(1)
-        } salvo(a) com sucesso.`
-      );
+    if (save(next)) {
+      $("#" + dialogId).close();
+      toast("Registro salvo.");
     }
   }
 
-  // ========================================
-  // SALVAR FORNECEDOR
-  // ========================================
+  function handleCompany(e) {
+    e.preventDefault();
 
-  function handleCompany(event) {
-    event.preventDefault();
-
-    const data = formObject(
-      event.currentTarget
-    );
-
+    const data = values(e.currentTarget);
     const cnpj = digits(data.cnpj);
 
     if (cnpj.length !== 14) {
-      toast("O CNPJ precisa ter 14 dígitos.");
-      return;
-    }
-
-    if (!data.nome.trim()) {
-      toast("Informe a razão social.");
+      toast("Informe um CNPJ com 14 dígitos.");
       return;
     }
 
     if (
-      db.suppliers.some(s =>
-        s.id !== editing.id &&
-        digits(s.cnpj) === cnpj
+      db.suppliers.some(
+        s =>
+          s.id !== editing.id &&
+          digits(s.cnpj) === cnpj
       )
     ) {
-      toast("Este CNPJ já está cadastrado.");
+      toast("CNPJ já cadastrado.");
       return;
     }
 
     upsert("company", {
       nome: data.nome.trim(),
-      cnpj: formatCnpj(cnpj)
+      cnpj: formatCNPJ(cnpj)
     });
   }
 
-  // ========================================
-  // SALVAR CONTRATO
-  // ========================================
+  function handleContract(e) {
+    e.preventDefault();
 
-  function handleContract(event) {
-    event.preventDefault();
+    const d = values(e.currentTarget);
 
-    const data = formObject(
-      event.currentTarget
-    );
-
-    if (!supplier(data.supplier)) {
+    if (!supplier(d.supplier)) {
       toast("Selecione um fornecedor válido.");
       return;
     }
 
-    if (!data.processo.trim()) {
-      toast("Informe o número do processo.");
-      return;
-    }
-
-    if (
-      data.vigenciaFinal <
-      data.vigenciaInicial
-    ) {
+    if (d.vigenciaFinal < d.vigenciaInicial) {
       toast(
-        "A vigência final não pode anteceder a inicial."
+        "A vigência final deve ser posterior à inicial."
       );
       return;
     }
 
-    const numericFields = [
-      "valorGlobal",
-      "custoPosto",
-      "gastoAnual2025",
-      "ploa2026",
-      "salario",
-      "encargos",
-      "materiais",
-      "gastoMensal2025",
-      "totalGasto2025",
-      "postos",
-      "qtdAtual",
-      "qtdAnalise"
-    ];
-
-    for (const name of numericFields) {
-      if (
-        data[name] !== "" &&
-        number(data[name]) < 0
-      ) {
-        toast(
-          "Existem valores numéricos inválidos."
-        );
-        return;
-      }
-    }
-
-    upsert("contract", data);
+    upsert("contract", d);
   }
 
-  // ========================================
-  // SALVAR PAGAMENTO
-  // ========================================
+  function handlePayment(e) {
+    e.preventDefault();
 
-  function handlePayment(event) {
-    event.preventDefault();
-
-    const data = formObject(
-      event.currentTarget
-    );
+    const d = values(e.currentTarget);
 
     if (
-      !contract(data.contractId) ||
-      positive(data.valor) <= 0
+      !contract(d.contractId) ||
+      positive(d.valor) <= 0
     ) {
       toast(
-        "Selecione um contrato e valor maior que zero."
+        "Selecione um contrato e informe valor maior que zero."
       );
       return;
     }
 
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(data.data)
-    ) {
-      toast("Informe uma data válida.");
-      return;
-    }
-
-    upsert("payment", data);
+    upsert("payment", d);
   }
 
-  // ========================================
-  // SALVAR PENDÊNCIA
-  // ========================================
+  function handlePending(e) {
+    e.preventDefault();
 
-  function handlePending(event) {
-    event.preventDefault();
+    const d = values(e.currentTarget);
 
-    const data = formObject(
-      event.currentTarget
-    );
-
-    if (
-      !contract(data.contractId) ||
-      !/^\d{4}-\d{2}$/.test(data.competencia)
-    ) {
-      toast(
-        "Selecione contrato e competência válidos."
-      );
+    if (!contract(d.contractId)) {
+      toast("Selecione um contrato válido.");
       return;
     }
 
     upsert("pending", {
-      ...data,
-      status:
-        data.status === "concluido"
-          ? "concluido"
-          : "aberto"
+      ...d,
+      status: d.status === "concluido"
+        ? "concluido"
+        : "aberto"
     });
   }
 
-  // ========================================
-  // EXCLUSÃO E SITUAÇÃO
-  // ========================================
+  // ==========================================
+  // EXCLUSÃO
+  // ==========================================
 
   function remove(kind, id) {
     const next = clone();
@@ -1478,21 +1275,19 @@
         )
       ) {
         toast(
-          "Esta empresa possui contratos vinculados."
+          "Há contratos vinculados. Exclua-os antes."
         );
         return;
       }
 
-      if (!confirm("Excluir esta empresa?")) {
-        return;
-      }
+      if (!confirm("Excluir fornecedor?")) return;
 
       next.suppliers = next.suppliers.filter(
         s => s.id !== id
       );
 
     } else if (kind === "contract") {
-      const paid = next.payments.filter(
+      const payments = next.payments.filter(
         p => p.contractId === id
       ).length;
 
@@ -1500,11 +1295,12 @@
         p => p.contractId === id
       ).length;
 
-      if (!confirm(
-        `Excluir este contrato? Também serão excluídos ` +
-        `${paid} pagamento(s) e ${pending} pendência(s). ` +
-        `Esta operação não pode ser desfeita.`
-      )) {
+      if (
+        !confirm(
+          `Excluir contrato e também ${payments} ` +
+          `pagamento(s) e ${pending} pendência(s) vinculados?`
+        )
+      ) {
         return;
       }
 
@@ -1521,154 +1317,84 @@
       );
 
     } else {
-      if (!confirm(
-        `Excluir este registro de ${
-          kind === "payment"
-            ? "pagamento"
-            : "pendência"
-        }?`
-      )) {
-        return;
-      }
+      if (!confirm("Excluir este registro?")) return;
 
-      const key = kind === "payment"
+      const table = kind === "payment"
         ? "payments"
         : "pendencias";
 
-      next[key] = next[key].filter(
-        row => row.id !== id
+      next[table] = next[table].filter(
+        x => x.id !== id
       );
     }
 
-    if (persist(next)) {
+    if (save(next)) {
       toast("Registro excluído.");
     }
   }
 
-  function changePending(id) {
+  function togglePending(id) {
     const next = clone();
 
-    const row = next.pendencias.find(
-      p => p.id === id
+    const p = next.pendencias.find(
+      x => x.id === id
     );
 
-    if (!row) return;
+    if (!p) return;
 
-    row.status =
-      row.status === "concluido"
+    p.status =
+      p.status === "concluido"
         ? "aberto"
         : "concluido";
 
-    if (persist(next)) {
+    if (save(next)) {
       toast(
-        "Situação alterada. Concluído não cria pagamento realizado."
+        "Situação atualizada. Nenhum pagamento foi criado."
       );
     }
   }
 
-  // ========================================
-  // EXPORTAÇÃO DE ARQUIVOS
-  // ========================================
+  // ==========================================
+  // EXPORTAÇÃO CSV
+  // ==========================================
 
-  function download(name, text, type) {
-    const blob = new Blob(
-      [text],
-      { type }
-    );
-
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = name;
-
-    document.body.append(link);
-    link.click();
-    link.remove();
-
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 1000);
-  }
-
-  // COLUNAS CSV
-
-  const CSV_COLS = {
+  const COLUMNS = {
     suppliers: [
-      "id",
-      "nome",
-      "cnpj"
+      "id", "nome", "cnpj"
     ],
 
     contracts: [
-      "id",
-      "supplier",
-      "empresa",
-      "cnpj",
-      "numero",
-      "processo",
-      "vigenciaInicial",
-      "vigenciaFinal",
-      "valorGlobal",
-      "ploa2026",
-      "gastoAnual2025",
-      "unidade",
-      "tipo",
-      "modalidade",
-      "nd",
-      "gestor",
-      "fiscalAdm",
-      "fiscalTecnico",
-      "suplente",
-      "garantia",
-      "tipoCusto",
-      "categoria",
-      "postos",
-      "salario",
-      "encargos",
-      "materiais",
-      "custoPosto",
-      "gastoMensal2025",
-      "totalGasto2025",
-      "qtdAtual",
-      "qtdAnalise",
-      "objeto",
-      "observacoes"
+      "id", "supplier", "empresa", "cnpj",
+      "numero", "processo", "vigenciaInicial",
+      "vigenciaFinal", "valorGlobal", "ploa2026",
+      "gastoAnual2025", "unidade", "tipo",
+      "modalidade", "nd", "gestor", "fiscalAdm",
+      "fiscalTecnico", "suplente", "garantia",
+      "tipoCusto", "categoria", "postos",
+      "salario", "encargos", "materiais",
+      "custoPosto", "gastoMensal2025",
+      "totalGasto2025", "qtdAtual",
+      "qtdAnalise", "objeto", "observacoes"
     ],
 
     payments: [
-      "id",
-      "contractId",
-      "contrato",
-      "processo",
-      "empresa",
-      "cnpj",
-      "data",
-      "descricao",
-      "valor"
+      "id", "contractId", "contrato",
+      "processo", "empresa", "cnpj",
+      "data", "descricao", "valor"
     ],
 
     pendencias: [
-      "id",
-      "contractId",
-      "contrato",
-      "processo",
-      "empresa",
-      "cnpj",
-      "competencia",
-      "referencia",
-      "valor",
-      "status"
+      "id", "contractId", "contrato",
+      "processo", "empresa", "cnpj",
+      "competencia", "referencia",
+      "valor", "status"
     ]
   };
 
-  function augmented(kind, row) {
-    if (kind === "suppliers") {
-      return { ...row };
-    }
+  function enriched(type, row) {
+    if (type === "suppliers") return row;
 
-    const c = kind === "contracts"
+    const c = type === "contracts"
       ? row
       : contract(row.contractId);
 
@@ -1676,53 +1402,65 @@
 
     return {
       ...row,
-
       empresa: s?.nome || "",
       cnpj: s?.cnpj || "",
-
       ...(
-        kind !== "contracts"
-          ? {
+        type === "contracts"
+          ? {}
+          : {
               contrato: c?.numero || "",
               processo: c?.processo || ""
             }
-          : {}
       )
     };
   }
 
-  // PROTEÇÃO CONTRA FÓRMULAS EM CSV
+  function download(filename, data, type) {
+    const url = URL.createObjectURL(
+      new Blob([data], { type })
+    );
 
-  const csvSafe = value => {
-    let text = String(value ?? "");
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = filename;
+
+    document.body.append(a);
+    a.click();
+    a.remove();
+
+    setTimeout(
+      () => URL.revokeObjectURL(url),
+      1000
+    );
+  }
+
+  const csvCell = v => {
+    let s = String(v ?? "");
 
     if (
-      /^[\s]*[=+@\-]/.test(text) &&
-      !/^-\d+(?:\.\d+)?$/.test(text.trim())
+      /^[\s]*[=+@\-]/.test(s) &&
+      !/^-?\d+(?:[.,]\d+)?$/.test(s.trim())
     ) {
-      text = "'" + text;
+      s = "'" + s;
     }
 
-    return `"${text.replace(/"/g, '""')}"`;
+    return `"${s.replace(/"/g, '""')}"`;
   };
 
-  // EXPORTAR TABELA CSV
+  function exportCSV(type) {
+    const rows = db[type];
 
-  function exportCSV(kind) {
-    const rows = db[kind];
-
-    if (!rows?.length) {
-      toast(
-        "Nenhum registro disponível para exportar."
-      );
+    if (!rows.length) {
+      toast("Não existem registros para exportar.");
       return;
     }
 
     const cols = [
       ...new Set([
-        ...CSV_COLS[kind],
+        ...COLUMNS[type],
         ...rows.flatMap(
-          r => Object.keys(r)
+          x => Object.keys(x)
         )
       ])
     ];
@@ -1730,249 +1468,135 @@
     const csv = "\uFEFF" +
       [
         cols,
-
         ...rows.map(r => {
-          const record = augmented(kind, r);
+          const obj = enriched(type, r);
 
           return cols.map(
-            col => record[col] ?? ""
+            k => obj[k] ?? ""
           );
         })
       ]
-        .map(row =>
-          row.map(csvSafe).join(";")
+        .map(r =>
+          r.map(csvCell).join(";")
         )
         .join("\r\n");
 
     download(
-      `CAF-SUREGPA-${kind}-${dateNow()}.csv`,
+      `CAF-${type}-${dateISO()}.csv`,
       csv,
       "text/csv;charset=utf-8"
     );
 
-    toast("Exportação CSV iniciada.");
+    toast("CSV preparado.");
   }
 
-  // ========================================
-  // BACKUP JSON
-  // ========================================
+  // ==========================================
+  // BACKUP E RESTAURAÇÃO
+  // ==========================================
 
-  function downloadBackup() {
+  function backup() {
     download(
-      `CAF-SUREGPA-backup-${dateNow()}.json`,
+      `CAF-backup-${dateISO()}.json`,
       JSON.stringify(db, null, 2),
-      "application/json;charset=utf-8"
+      "application/json"
     );
 
-    toast("Backup JSON gerado.");
+    toast("Backup gerado.");
   }
 
-  async function restoreBackup(file) {
+  async function restore(file) {
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast(
-        "Arquivo muito grande para backup local."
-      );
+    if (file.size > 12 * 1024 * 1024) {
+      toast("Arquivo de backup muito grande.");
       return;
     }
 
     try {
-      const data = JSON.parse(
+      const next = JSON.parse(
         await file.text()
       );
 
       if (
-        !data ||
-        typeof data !== "object" ||
+        !next ||
         TYPES.some(
-          k => !Array.isArray(data[k])
+          k => !Array.isArray(next[k])
         )
       ) {
-        throw Error("Formato JSON incompatível");
+        throw Error("Formato inválido");
       }
 
-      if (!confirm(
-        "Restaurar o backup? Todos os registros atuais " +
-        "deste navegador serão substituídos."
-      )) {
+      if (
+        !confirm(
+          "Restaurar backup e substituir TODOS os registros atuais?"
+        )
+      ) {
         return;
       }
 
-      if (blockedStorage) {
-        blockedStorage = false;
-      }
+      locked = false;
 
-      if (persist(data)) {
+      if (save(next)) {
         toast("Backup restaurado.");
       }
 
     } catch (error) {
-      console.error(
-        "Erro ao restaurar backup",
-        error
-      );
-
-      toast(
-        "Backup inválido. Use um JSON do CAF SUREG-PA."
-      );
+      console.error(error);
+      toast("Backup JSON inválido.");
     }
   }
 
-  // ========================================
-  // IMPORTAÇÃO CSV E TXT TABULAR
-  // ========================================
+  // ==========================================
+  // IMPORTAÇÃO CSV / TXT
+  // ==========================================
 
-  function setupImport() {
-    const reportCard = $(
-      "#view-reports .export-grid"
-    );
+  function parseTable(text) {
+    const input = text.replace(/^\uFEFF/, "");
+    const head = input.split(/\r?\n/, 1)[0];
 
-    reportCard.insertAdjacentHTML(
-      "afterend",
-      `
-      <div
-        id="csvImportBox"
-        style="
-          margin-top:22px;
-          border-top:1px solid #e2e7e3;
-          padding-top:18px;
-        "
-      >
+    let delimiter = ";";
+    let best = -1;
 
-        <h3 style="font-size:14px;margin:0 0 8px">
-          Importar CSV ou TXT tabulado
-        </h3>
+    for (const d of [";", "\t", ","]) {
+      const count = head.split(d).length - 1;
 
-        <p class="muted">
-          Escolha a tabela. Os registros usam
-          identificadores, CNPJ ou números de contrato
-          para vincular os dados. Faça backup antes.
-        </p>
+      if (count > best) {
+        delimiter = d;
+        best = count;
+      }
+    }
 
-        <div class="export-grid">
-
-          <select
-            id="csvImportKind"
-            aria-label="Tipo de cadastro"
-            style="
-              padding:10px;
-              border:1px solid #dbe7df;
-              border-radius:8px;
-            "
-          >
-            <option value="suppliers">
-              Fornecedores
-            </option>
-
-            <option value="contracts">
-              Contratos
-            </option>
-
-            <option value="payments">
-              Pagamentos
-            </option>
-
-            <option value="pendencias">
-              Pendências
-            </option>
-          </select>
-
-          <button
-            type="button"
-            class="btn light"
-            data-action="import-csv"
-          >
-            Importar arquivo .csv/.txt
-          </button>
-
-          <input
-            id="csvImportFile"
-            type="file"
-            accept=".csv,.txt,text/csv,text/plain"
-            hidden
-          >
-
-        </div>
-
-        <p
-          id="csvImportResult"
-          class="footnote"
-          aria-live="polite"
-        ></p>
-
-      </div>
-      `
-    );
-  }
-
-  // LEITOR DE CSV COM ASPAS E QUEBRAS DE LINHA
-
-  function parseDelimited(text) {
-    const body = text.replace(/^\uFEFF/, "");
-
-    const header = body.split(/\r?\n/, 1)[0];
-
-    const separator = [
-      ";",
-      "\t",
-      ","
-    ]
-      .map(ch => ({
-        ch,
-
-        count: (
-          header.match(
-            new RegExp(
-              ch === "\t"
-                ? "\\t"
-                : ch === ","
-                  ? ","
-                  : ";",
-              "g"
-            )
-          ) || []
-        ).length
-      }))
-      .sort(
-        (a, b) => b.count - a.count
-      )[0];
-
-    if (!separator || !separator.count) {
+    if (best < 1) {
       throw Error(
-        "Separador de colunas não encontrado."
+        "O arquivo não possui colunas separadas."
       );
     }
-
-    const delim = separator.ch;
 
     const lines = [];
-
     let cells = [];
-    let content = "";
+    let part = "";
     let quoted = false;
 
-    for (let i = 0; i < body.length; i++) {
-      const ch = body[i];
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
 
       if (ch === '"') {
         if (
           quoted &&
-          body[i + 1] === '"'
+          input[i + 1] === '"'
         ) {
-          content += '"';
+          part += '"';
           i++;
-
         } else {
           quoted = !quoted;
         }
 
       } else if (
-        ch === delim &&
+        ch === delimiter &&
         !quoted
       ) {
-        cells.push(content);
-        content = "";
+        cells.push(part);
+        part = "";
 
       } else if (
         (ch === "\n" || ch === "\r") &&
@@ -1980,181 +1604,188 @@
       ) {
         if (
           ch === "\r" &&
-          body[i + 1] === "\n"
+          input[i + 1] === "\n"
         ) {
           i++;
         }
 
-        cells.push(content);
-        content = "";
+        cells.push(part);
 
         if (
-          cells.some(c => c.trim())
+          cells.some(v => v.trim())
         ) {
           lines.push(cells);
         }
 
         cells = [];
+        part = "";
 
       } else {
-        content += ch;
+        part += ch;
       }
     }
 
     if (quoted) {
       throw Error(
-        "CSV com aspas não fechadas."
+        "Há aspas não fechadas no arquivo."
       );
     }
 
-    cells.push(content);
+    cells.push(part);
 
     if (
-      cells.some(c => c.trim())
+      cells.some(v => v.trim())
     ) {
       lines.push(cells);
     }
 
     if (lines.length < 2) {
       throw Error(
-        "CSV sem linhas de dados."
+        "O arquivo não contém registros."
       );
     }
 
-    const names = lines[0].map(keyName);
+    const keys = lines.shift().map(
+      k => k
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toLowerCase()
+    );
 
     if (
-      new Set(names).size !== names.length
+      new Set(keys).size !== keys.length
     ) {
-      throw Error(
-        "O CSV possui cabeçalhos duplicados."
-      );
+      throw Error("Cabeçalhos duplicados.");
     }
 
-    return lines.slice(1).map(cells =>
-      Object.fromEntries(
-        names.map((name, i) => [
-          name,
-          (cells[i] || "").trim()
+    return lines.map(
+      line => Object.fromEntries(
+        keys.map((k, i) => [
+          k,
+          (line[i] || "").trim()
         ])
       )
     );
   }
 
-  // TRADUÇÃO DE CABEÇALHOS COMUNS
+  const alias = {
+    razaosocial: "nome",
+    nomeempresa: "empresa",
+    favorecido: "empresa",
+    numerocontrato: "contrato",
+    numerodocontrato: "contrato",
+    numeroprocesso: "processo",
+    mes: "competencia",
+    mescompetencia: "competencia",
+    valorliquido: "valor",
+    datapagamento: "data"
+  };
 
-  function normalizedRecord(raw) {
-    const aliases = {
-      razaosocial: "nome",
-      favorecido: "empresa",
-      nomeempresa: "empresa",
-      numerocontrato: "contrato",
-      numerodocontrato: "contrato",
-      numeroprocesso: "processo",
-      processocontratual: "processo",
-      mes: "competencia",
-      mescompetencia: "competencia",
-      mesdereferencia: "competencia",
-      valorliquido: "valor",
-      datapagamento: "data"
-    };
+  function normalizeImport(row) {
+    const out = {};
 
-    const result = {};
-
-    for (
-      const [key, value] of Object.entries(raw)
-    ) {
-      result[aliases[key] || key] = value;
+    for (const [k, v] of Object.entries(row)) {
+      out[alias[k] || k] = v;
     }
 
-    return result;
+    for (const fields of Object.values(COLUMNS)) {
+      for (const camel of fields) {
+        const low = camel.toLowerCase();
+
+        if (
+          out[low] !== undefined &&
+          camel !== low
+        ) {
+          out[camel] = out[low];
+          delete out[low];
+        }
+      }
+    }
+
+    return out;
   }
 
-  function resolveSupplier(row, state) {
-    const known = state.suppliers.find(
-      s => s.id === row.supplier
-    );
+  function resolveSupplier(row, next) {
+    return (
+      next.suppliers.find(
+        s => s.id === row.supplier
+      )?.id ||
 
-    if (known) return known.id;
-
-    if (row.cnpj) {
-      return state.suppliers.find(
-        s => digits(s.cnpj) === digits(row.cnpj)
-      )?.id;
-    }
-
-    if (row.empresa) {
-      return state.suppliers.find(
+      next.suppliers.find(
         s =>
-          cleanQuery(s.nome) ===
-          cleanQuery(row.empresa)
-      )?.id;
-    }
+          digits(s.cnpj) === digits(row.cnpj) &&
+          digits(row.cnpj).length === 14
+      )?.id ||
 
-    return null;
+      next.suppliers.find(
+        s =>
+          clean(s.nome) === clean(row.empresa) &&
+          row.empresa
+      )?.id ||
+
+      null
+    );
   }
 
-  function resolveContract(row, state) {
+  function resolveContract(row, next) {
     if (
-      state.contracts.some(
-        c => c.id === row.contractid
+      next.contracts.some(
+        c => c.id === row.contractId
       )
     ) {
-      return row.contractid;
+      return row.contractId;
     }
 
-    const matches = state.contracts.filter(c =>
-      (
-        row.contrato &&
-        String(c.numero || "").trim() ===
-        row.contrato
-      ) ||
-      (
-        row.processo &&
-        String(c.processo || "").trim() ===
-        row.processo
-      )
+    let matches = next.contracts.filter(
+      c =>
+        (
+          row.contrato &&
+          c.numero === row.contrato
+        ) ||
+        (
+          row.processo &&
+          c.processo === row.processo
+        )
     );
 
     const supplierId = resolveSupplier(
       row,
-      state
+      next
     );
 
-    const narrowed = supplierId
-      ? matches.filter(
-          c => c.supplier === supplierId
-        )
-      : matches;
+    if (supplierId) {
+      matches = matches.filter(
+        c => c.supplier === supplierId
+      );
+    }
 
-    return narrowed.length === 1
-      ? narrowed[0].id
+    return matches.length === 1
+      ? matches[0].id
       : null;
   }
 
-  // EXECUTAR IMPORTAÇÃO
-
-  async function importDelimited(file) {
+  async function importCSV(file) {
     if (!file) return;
 
+    const out = $("#importResult");
+
     if (file.size > 5 * 1024 * 1024) {
-      toast(
-        "CSV/TXT deve ter até 5 MB por importação."
-      );
+      toast("Arquivo muito grande (máximo 5 MB).");
       return;
     }
 
-    const kind = $("#csvImportKind").value;
-    const report = $("#csvImportResult");
-
     try {
-      const parsed = parseDelimited(
-        await file.text()
-      ).map(normalizedRecord);
+      const type = $("#importKind").value;
 
-      if (parsed.length > 10000) {
+      const rows = parseTable(
+        await file.text()
+      ).map(normalizeImport);
+
+      if (rows.length > 10000) {
         throw Error(
-          "Importe no máximo 10.000 linhas por vez."
+          "Importe até 10.000 registros por vez."
         );
       }
 
@@ -2162,337 +1793,233 @@
 
       let added = 0;
       let updated = 0;
-      let ignored = 0;
+      let skipped = 0;
 
-      for (const row of parsed) {
-        let record = null;
+      for (const row of rows) {
+        let obj;
+        let existing;
 
-        // IMPORTAÇÃO DE FORNECEDORES
-
-        if (kind === "suppliers") {
+        if (type === "suppliers") {
           if (
             !row.nome ||
             digits(row.cnpj).length !== 14
           ) {
-            ignored++;
+            skipped++;
             continue;
           }
 
-          const found = next.suppliers.find(
+          existing = next.suppliers.find(
             s =>
-              digits(s.cnpj) ===
-              digits(row.cnpj)
+              digits(s.cnpj) === digits(row.cnpj)
           );
 
-          record = {
-            ...found,
-
-            id: found?.id || uid(),
-
+          obj = {
+            ...existing,
             nome: row.nome,
-
-            cnpj: formatCnpj(
-              row.cnpj
-            )
+            cnpj: formatCNPJ(row.cnpj),
+            id: existing?.id || uid()
           };
 
-        // IMPORTAÇÃO DE CONTRATOS
-
-        } else if (kind === "contracts") {
-          const supplierId = resolveSupplier(
+        } else if (type === "contracts") {
+          const sid = resolveSupplier(
             row,
             next
           );
 
           if (
-            !supplierId ||
+            !sid ||
             !row.processo
           ) {
-            ignored++;
+            skipped++;
             continue;
           }
 
-          const found =
+          existing =
             next.contracts.find(
               c => c.id === row.id
             ) ||
-            next.contracts.find(c =>
-              c.supplier === supplierId &&
-              c.processo === row.processo &&
-              (c.numero || "") ===
-              (row.numero || "")
+            next.contracts.find(
+              c =>
+                c.supplier === sid &&
+                c.processo === row.processo &&
+                (c.numero || "") === (row.numero || "")
             );
 
-          record = {
-            ...found,
+          obj = {
+            ...existing,
             ...row,
-
-            id: found?.id || uid(),
-
-            supplier: supplierId
+            supplier: sid,
+            id: existing?.id || uid()
           };
 
-          delete record.empresa;
-          delete record.cnpj;
-
-          // Reconstruir nomes originais em camelCase.
-
-          for (const column of CSV_COLS.contracts) {
-            if (
-              column !== keyName(column) &&
-              row[keyName(column)] !== undefined
-            ) {
-              record[column] =
-                row[keyName(column)];
-
-              delete record[keyName(column)];
-            }
-          }
-
-          const moneyFields = [
-            "valorGlobal",
-            "ploa2026",
-            "gastoAnual2025",
-            "custoPosto",
-            "salario",
-            "encargos",
-            "materiais",
-            "gastoMensal2025",
-            "totalGasto2025"
-          ];
-
-          for (const col of moneyFields) {
-            if (
-              record[col] !== undefined &&
-              record[col] !== ""
-            ) {
-              record[col] =
-                String(positive(record[col]));
-            }
-          }
-
-        // IMPORTAÇÃO DE PAGAMENTOS E PENDÊNCIAS
+          delete obj.empresa;
+          delete obj.cnpj;
 
         } else {
-          const contractId = resolveContract(
+          const cid = resolveContract(
             row,
             next
           );
 
-          const validDate = kind === "payments"
-            ? /^\d{4}-\d{2}-\d{2}$/.test(
-                row.data || ""
-              )
-            : /^\d{4}-\d{2}$/.test(
-                row.competencia || ""
-              );
+          const isPayment = type === "payments";
+
+          const valid = isPayment
+            ? /^\d{4}-\d{2}-\d{2}$/.test(row.data || "")
+            : /^\d{4}-\d{2}$/.test(row.competencia || "");
 
           if (
-            !contractId ||
-            !row.valor ||
-            !validDate
+            !cid ||
+            !valid ||
+            row.valor === "" ||
+            row.valor === undefined ||
+            amount(row.valor) < 0
           ) {
-            ignored++;
+            skipped++;
             continue;
           }
 
-          const key = kind === "payments"
-            ? "payments"
-            : "pendencias";
-
-          const found =
-            next[key].find(
+          existing =
+            next[type].find(
               p => p.id === row.id
             ) ||
-            next[key].find(p =>
-              p.contractId === contractId &&
-              (
-                kind === "payments"
-                  ? (
-                      p.data === row.data &&
-                      (p.descricao || "") ===
-                      (row.descricao || "") &&
-                      positive(p.valor) ===
-                      positive(row.valor)
-                    )
-                  : (
-                      p.competencia ===
-                      row.competencia &&
-                      (p.referencia || "") ===
-                      (row.referencia || "") &&
-                      positive(p.valor) ===
-                      positive(row.valor)
-                    )
-              )
+            next[type].find(
+              p =>
+                p.contractId === cid &&
+                (
+                  isPayment
+                    ? (
+                        p.data === row.data &&
+                        p.descricao === row.descricao &&
+                        positive(p.valor) === positive(row.valor)
+                      )
+                    : (
+                        p.competencia === row.competencia &&
+                        p.referencia === row.referencia &&
+                        positive(p.valor) === positive(row.valor)
+                      )
+                )
             );
 
-          record = {
-            ...found,
+          obj = {
+            ...existing,
             ...row,
-
-            id: found?.id || uid(),
-
-            contractId,
-
+            contractId: cid,
             valor: String(
               positive(row.valor)
-            )
+            ),
+            id: existing?.id || uid()
           };
 
-          if (kind === "pendencias") {
-            record.status =
+          if (!isPayment) {
+            obj.status =
               row.status === "concluido"
                 ? "concluido"
                 : "aberto";
           }
 
-          for (const col of [
+          for (const k of [
             "empresa",
             "cnpj",
             "contrato",
-            "processo",
-            "contractid"
+            "processo"
           ]) {
-            delete record[col];
+            delete obj[k];
           }
         }
 
-        const index = next[kind].findIndex(
-          x => x.id === record.id
+        const i = next[type].findIndex(
+          x => x.id === obj.id
         );
 
-        if (index >= 0) {
-          next[kind][index] = record;
-          updated++;
-
-        } else {
-          next[kind].push(record);
+        if (i < 0) {
+          next[type].push(obj);
           added++;
+        } else {
+          next[type][i] = obj;
+          updated++;
         }
       }
 
       if (!added && !updated) {
         throw Error(
-          "Nenhuma linha válida. Verifique as colunas, " +
-          "datas e vínculos de empresa/contrato."
+          "Nenhum registro válido. Importe primeiro " +
+          "fornecedores e contratos."
         );
       }
 
-      const confirmation =
-        `Importar ${added} novo(s), ` +
-        `atualizar ${updated} e ` +
-        `ignorar ${ignored} registro(s)?\n\n` +
-        "Faça backup antes de confirmar.";
-
-      if (!confirm(confirmation)) {
+      if (
+        !confirm(
+          `Confirmar importação?\n` +
+          `Novos: ${added}\n` +
+          `Atualizados: ${updated}\n` +
+          `Ignorados: ${skipped}\n\n` +
+          `Faça backup antes de prosseguir.`
+        )
+      ) {
         return;
       }
 
-      if (persist(next)) {
-        report.textContent =
-          `Importação concluída: ` +
-          `${added} incluído(s), ` +
+      if (save(next)) {
+        out.textContent =
+          `Importação finalizada: ${added} novo(s), ` +
           `${updated} atualizado(s), ` +
-          `${ignored} ignorado(s).`;
+          `${skipped} ignorado(s).`;
 
-        toast("CSV/TXT importado.");
+        toast("Importação concluída.");
       }
 
     } catch (error) {
-      console.error(
-        "CAF: erro na importação",
-        error
-      );
+      console.error(error);
 
-      report.textContent =
-        error.message;
+      out.textContent = error.message;
 
       toast(
-        `Importação não realizada: ${error.message}`
+        "Falha na importação: " +
+        error.message
       );
     }
   }
 
-  // ========================================
-  // AÇÕES DO SISTEMA
-  // ========================================
+  // ==========================================
+  // AÇÕES
+  // ==========================================
 
   const actions = {
-    "new-company": () =>
-      openDialog("company"),
+    "new-company": () => showForm("company"),
+    "new-contract": () => showForm("contract"),
+    "new-payment": () => showForm("payment"),
+    "new-pending": () => showForm("pending"),
 
-    "new-contract": () =>
-      openDialog("contract"),
+    "edit-company": id => showForm("company", id),
+    "edit-contract": id => showForm("contract", id),
+    "edit-payment": id => showForm("payment", id),
+    "edit-pending": id => showForm("pending", id),
 
-    "new-payment": () =>
-      openDialog("payment"),
+    "delete-company": id => remove("company", id),
+    "delete-contract": id => remove("contract", id),
+    "delete-payment": id => remove("payment", id),
+    "delete-pending": id => remove("pending", id),
 
-    "new-pending": () =>
-      openDialog("pending"),
+    "toggle-pending": togglePending,
 
-    "edit-company": id =>
-      openDialog("company", id),
+    "export-companies": () => exportCSV("suppliers"),
+    "export-contracts": () => exportCSV("contracts"),
+    "export-payments": () => exportCSV("payments"),
+    "export-pending": () => exportCSV("pendencias"),
 
-    "edit-contract": id =>
-      openDialog("contract", id),
-
-    "edit-payment": id =>
-      openDialog("payment", id),
-
-    "edit-pending": id =>
-      openDialog("pending", id),
-
-    "delete-company": id =>
-      remove("company", id),
-
-    "delete-contract": id =>
-      remove("contract", id),
-
-    "delete-payment": id =>
-      remove("payment", id),
-
-    "delete-pending": id =>
-      remove("pending", id),
-
-    "toggle-pending": id =>
-      changePending(id),
-
-    "export-companies": () =>
-      exportCSV("suppliers"),
-
-    "export-contracts": () =>
-      exportCSV("contracts"),
-
-    "export-payments": () =>
-      exportCSV("payments"),
-
-    "export-pending": () =>
-      exportCSV("pendencias"),
-
-    "backup": downloadBackup,
-
-    "restore": () =>
-      $("#restoreFile").click(),
-
-    "import-csv": () =>
-      $("#csvImportFile").click()
+    "backup": backup,
+    "restore": () => $("#restoreFile").click(),
+    "import": () => $("#importFile").click()
   };
 
-  // ========================================
+  // ==========================================
   // INICIALIZAÇÃO
-  // ========================================
+  // ==========================================
 
   function init() {
-    db = readDB();
+    db = read();
 
-    setupImport();
-
-    // FORMULÁRIOS
-
-    $("#contractForm").addEventListener(
-      "input",
-      calculateCCT
-    );
+    migrateLegacyExamples();
 
     $("#companyForm").addEventListener(
       "submit",
@@ -2514,39 +2041,23 @@
       handlePending
     );
 
-    // FILTROS
+    $("#contractForm").addEventListener(
+      "input",
+      calculateCCT
+    );
 
-    const filters = [
-      [
-        "#filterCompanies",
-        renderCompanies
-      ],
-      [
-        "#filterContracts",
-        renderContracts
-      ],
-      [
-        "#filterPayments",
-        renderPayments
-      ],
-      [
-        "#filterPending",
-        renderPending
-      ],
-      [
-        "#pendingStatus",
-        renderPending
-      ]
-    ];
-
-    for (const [selector, fn] of filters) {
+    [
+      ["#filterCompanies", renderCompanies],
+      ["#filterContracts", renderContracts],
+      ["#filterPayments", renderPayments],
+      ["#filterPending", renderPending],
+      ["#pendingStatus", renderPending]
+    ].forEach(([selector, fn]) =>
       $(selector).addEventListener(
         "input",
         fn
-      );
-    }
-
-    // CLIQUES E NAVEGAÇÃO
+      )
+    );
 
     document.addEventListener(
       "click",
@@ -2556,10 +2067,7 @@
         );
 
         if (close) {
-          document.getElementById(
-            close.dataset.close
-          )?.close();
-
+          $("#" + close.dataset.close)?.close();
           return;
         }
 
@@ -2572,24 +2080,22 @@
           return;
         }
 
-        const button = event.target.closest(
+        const action = event.target.closest(
           "[data-action]"
         );
 
-        if (button) {
-          actions[button.dataset.action]?.(
-            button.dataset.id
+        if (action) {
+          actions[action.dataset.action]?.(
+            action.dataset.id
           );
         }
       }
     );
 
-    // RESTAURAÇÃO JSON
-
     $("#restoreFile").addEventListener(
       "change",
       async event => {
-        await restoreBackup(
+        await restore(
           event.target.files?.[0]
         );
 
@@ -2597,46 +2103,38 @@
       }
     );
 
-    // IMPORTAÇÃO CSV/TXT
-
-    $("#csvImportFile").addEventListener(
+    $("#importFile").addEventListener(
       "change",
       async event => {
-        await importDelimited(
+        await importCSV(
           event.target.files?.[0]
         );
 
         event.target.value = "";
       }
     );
-
-    // ALTERAÇÕES EM OUTRAS ABAS
 
     window.addEventListener(
       "storage",
       event => {
         if (
-          event.key !== KEY ||
-          blockedStorage
+          event.key !== STORE ||
+          locked
         ) {
           return;
         }
 
-        db = readDB();
+        db = read();
         renderAll();
-
-        toast(
-          "Dados atualizados por outra aba deste navegador."
-        );
       }
     );
 
     navigate("dashboard");
 
-    if (blockedStorage) {
+    if (locked) {
       toast(
-        "Os dados salvos não puderam ser lidos. " +
-        "Recupere um backup antes de fazer alterações."
+        "Dados anteriores não puderam ser lidos. " +
+        "Confira o backup antes de editar."
       );
     }
   }
@@ -2647,9 +2145,7 @@
       init,
       { once: true }
     );
-
   } else {
     init();
   }
-
 })();
