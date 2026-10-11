@@ -734,5 +734,104 @@ td small {
   *, *:before, *:after {
     transition: none !important;
     animation: none !important;
+/* ========================================
+   CENTRAL DE DOCUMENTOS
+   ======================================== */
+
+.docs-panel {
+  border-top: 3px solid var(--blue);
+}
+
+.docs-dropzone {
+  margin-top: 16px;
+}
+
+.docs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.docs-toolbar label {
+  font-size: 12px;
+  color: #55768c;
+  font-weight: 750;
+}
+
+.docs-toolbar select {
+  border: 1px solid #d9e5ed;
+  background: #f9fbfd;
+  color: #38566a;
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 140px;
+}
+
+.docs-toolbar button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.docs-table-scroll {
+  max-height: 400px;
+}
+
+.docs-found {
+  display: grid;
+  gap: 10px;
+  margin: 15px 0 19px;
+}
+
+.docs-found-item {
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 9px;
+  background: #f8fbfd;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.docs-found-item strong {
+  color: #36566e;
+}
+
+.docs-found-item span {
+  color: #607f91;
+  overflow-wrap: anywhere;
+}
+
+.docs-subheading {
+  margin-top: 24px;
+}
+
+.docs-text-label {
+  font-size: 12px;
+  font-weight: 750;
+  display: block;
+  margin: 15px 0 8px;
+}
+
+#docsText {
+  display: block;
+  width: 100%;
+  min-height: 260px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfe;
+  color: #27485e;
+  resize: vertical;
+  line-height: 1.6;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  font-size: 12px;
+}
+
   }
 }
