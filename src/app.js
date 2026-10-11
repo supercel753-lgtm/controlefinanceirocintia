@@ -3,20 +3,14 @@
 
 /*
   CAF SUREG-PA — Gestão Financeira
-  Armazenamento local sem dados automáticos.
-  Futuramente: autenticação, Supabase e permissões.
+  Cadastros, importação CSV, backup e Central de Documentos.
+  Dados locais. Sem inserção automática de exemplos.
 */
 
 (() => {
   const STORE = "caf-suregpa-v2";
-  const EXERCISE = 2026;
-
-  const TYPES = [
-    "suppliers",
-    "contracts",
-    "payments",
-    "pendencias"
-  ];
+  const YEAR = 2026;
+  const TYPES = ["suppliers", "contracts", "payments", "pendencias"];
 
   const $ = id => document.getElementById(id);
   const $$ = selector => [...document.querySelectorAll(selector)];
@@ -31,119 +25,91 @@
   const clone = obj => JSON.parse(JSON.stringify(obj));
 
   const uuid = () =>
-    globalThis.crypto?.randomUUID?.() ||
+    crypto.randomUUID?.() ||
     `caf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  const escapeHTML = value =>
-    String(value ?? "").replace(/[&<>"']/g, ch => ({
+  const esc = value =>
+    String(value ?? "").replace(/[&<>"']/g, char => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;"
-    })[ch]);
+    })[char]);
 
-  const normalize = value =>
+  const norm = value =>
     String(value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .trim();
 
-  const canonical = value =>
-    normalize(value).replace(/[^a-z0-9]/g, "");
+  const canon = value =>
+    norm(value).replace(/[^a-z0-9]/g, "");
 
   const digits = value =>
     String(value ?? "").replace(/\D/g, "");
 
-  const num = value => {
+  const number = value => {
     const n = Number(value);
     return Number.isFinite(n) ? n : 0;
   };
 
-  const sum = (list, key = "valor") =>
-    list.reduce((s, r) => s + num(r[key]), 0);
+  const total = (rows, key = "valor") =>
+    rows.reduce((sum, row) => sum + number(row[key]), 0);
 
   const brl = value =>
     new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL"
-    }).format(num(value));
+    }).format(number(value));
 
-  const isoToday = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(
-      d.getMonth() + 1
-    ).padStart(2, "0")}-${String(
-      d.getDate()
-    ).padStart(2, "0")}`;
+  const today = () => {
+    const date = new Date();
+
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0")
+    ].join("-");
   };
 
-  const showDate = value =>
+  const displayDate = value =>
     /^\d{4}-\d{2}-\d{2}$/.test(value || "")
       ? value.split("-").reverse().join("/")
-      : (value || "—");
+      : value || "—";
 
-  const showMonth = value =>
+  const displayMonth = value =>
     /^\d{4}-\d{2}$/.test(value || "")
       ? `${value.slice(5)}/${value.slice(0, 4)}`
-      : (value || "—");
+      : value || "—";
 
-  const moneyKeys = [
-    "valorGlobal",
-    "custoPosto",
-    "gastoAnual2025",
-    "ploa2026",
-    "salario",
-    "encargos",
-    "materiais",
-    "gastoMensal2025",
-    "totalGasto2025"
+  const moneyFields = [
+    "valorGlobal", "custoPosto", "gastoAnual2025",
+    "ploa2026", "salario", "encargos", "materiais",
+    "gastoMensal2025", "totalGasto2025"
   ];
 
-  const integerKeys = [
-    "postos",
-    "qtdAtual",
-    "qtdAnalise"
+  const integerFields = [
+    "postos", "qtdAtual", "qtdAnalise"
   ];
 
   const contractFields = [
-    "supplier",
-    "numero",
-    "processo",
-    "vigenciaInicial",
-    "vigenciaFinal",
-    "objeto",
-    "valorGlobal",
-    "custoPosto",
-    "gastoAnual2025",
-    "ploa2026",
-    "unidade",
-    "tipo",
-    "modalidade",
-    "nd",
-    "gestor",
-    "fiscalAdm",
-    "fiscalTecnico",
-    "suplente",
-    "garantia",
-    "tipoCusto",
-    "categoria",
-    "postos",
-    "salario",
-    "encargos",
-    "materiais",
-    "gastoMensal2025",
-    "totalGasto2025",
-    "qtdAtual",
-    "qtdAnalise",
-    "observacoes"
+    "supplier", "numero", "processo",
+    "vigenciaInicial", "vigenciaFinal", "objeto",
+    "valorGlobal", "custoPosto", "gastoAnual2025",
+    "ploa2026", "unidade", "tipo", "modalidade",
+    "nd", "gestor", "fiscalAdm", "fiscalTecnico",
+    "suplente", "garantia", "tipoCusto", "categoria",
+    "postos", "salario", "encargos", "materiais",
+    "gastoMensal2025", "totalGasto2025",
+    "qtdAtual", "qtdAnalise", "observacoes"
   ];
 
   const columns = {
     suppliers: [
-      "id", "nome", "cnpj",
-      "telefone", "email", "observacoes"
+      "id", "nome", "cnpj", "telefone",
+      "email", "observacoes"
     ],
 
     contracts: [
@@ -161,75 +127,62 @@
     pendencias: [
       "id", "contractId", "numero", "processo",
       "empresa", "cnpj", "competencia", "valor",
-      "referencia", "vencimento", "status",
-      "observacoes"
+      "referencia", "vencimento", "status", "observacoes"
     ]
   };
 
   let db = emptyDB();
-  let activeEdit = { type: null, id: null };
-  let staging = null;
+  let editing = { type: null, id: null };
+  let staged = null;
   let storageLocked = false;
   let toastTimer;
 
-  // =========================================
-  // NOTIFICAÇÕES E ARMAZENAMENTO
-  // =========================================
+  // ========================================
+  // ARMAZENAMENTO
+  // ========================================
 
   function toast(message) {
-    const el = $("toast");
-    el.textContent = message;
-    el.classList.add("visible");
+    const element = $("toast");
+
+    element.textContent = message;
+    element.classList.add("visible");
 
     clearTimeout(toastTimer);
 
-    toastTimer = setTimeout(
-      () => el.classList.remove("visible"),
-      4500
-    );
+    toastTimer = setTimeout(() => {
+      element.classList.remove("visible");
+    }, 4000);
   }
 
   function readDB() {
     try {
-      const raw = localStorage.getItem(STORE);
+      const saved = localStorage.getItem(STORE);
 
-      if (raw === null) return emptyDB();
+      if (saved === null) return emptyDB();
 
-      const data = JSON.parse(raw);
+      const data = JSON.parse(saved);
 
       if (
         !data ||
         typeof data !== "object" ||
         Array.isArray(data) ||
-        TYPES.some(t => !Array.isArray(data[t]))
+        TYPES.some(type => !Array.isArray(data[type]))
       ) {
-        throw Error("Estrutura de dados incompatível");
-      }
-
-      if (
-        TYPES.some(t =>
-          data[t].some(row =>
-            !row ||
-            typeof row !== "object" ||
-            Array.isArray(row)
-          )
-        )
-      ) {
-        throw Error("Registros incompatíveis");
+        throw Error("Estrutura de armazenamento inválida.");
       }
 
       return data;
 
-    } catch (err) {
-      console.error("Falha no armazenamento", err);
+    } catch (error) {
+      console.error(error);
       storageLocked = true;
       return emptyDB();
     }
   }
 
-  function persist(next) {
+  function saveDB(next) {
     if (storageLocked) {
-      toast("Armazenamento bloqueado. Faça uma recuperação de backup.");
+      toast("Armazenamento bloqueado. Verifique o backup.");
       return false;
     }
 
@@ -239,97 +192,103 @@
       renderAll();
       return true;
 
-    } catch (err) {
-      console.error("Falha ao gravar", err);
-      toast("Não foi possível salvar os dados neste navegador.");
+    } catch (error) {
+      console.error(error);
+      toast("Não foi possível salvar os dados.");
       return false;
     }
   }
 
-  // =========================================
-  // RELACIONAMENTOS
-  // =========================================
+  // ========================================
+  // RELACIONAMENTOS E CÁLCULOS
+  // ========================================
 
-  const getSupplier = (id, state = db) =>
-    state.suppliers.find(s => s.id === id);
+  const supplier = (id, state = db) =>
+    state.suppliers.find(row => row.id === id);
 
-  const getContract = (id, state = db) =>
-    state.contracts.find(c => c.id === id);
+  const contract = (id, state = db) =>
+    state.contracts.find(row => row.id === id);
 
-  const supplierName = (c, state = db) =>
-    getSupplier(c?.supplier, state)?.nome ||
+  const supplierName = (item, state = db) =>
+    supplier(item?.supplier, state)?.nome ||
     "Fornecedor não identificado";
 
-  const contractLabel = (c, state = db) =>
-    `${c.numero || c.processo || "Contrato"} — ${supplierName(c, state)}`;
+  const contractName = (item, state = db) =>
+    `${item.numero || item.processo || "Contrato"} — ${
+      supplierName(item, state)
+    }`;
 
-  const contractStatus = c => {
-    if (!c.vigenciaInicial || !c.vigenciaFinal) {
+  function contractStatus(item) {
+    if (!item.vigenciaInicial || !item.vigenciaFinal) {
       return "Sem vigência";
     }
 
-    if (c.vigenciaInicial > isoToday()) {
+    if (item.vigenciaInicial > today()) {
       return "A iniciar";
     }
 
-    if (c.vigenciaFinal < isoToday()) {
+    if (item.vigenciaFinal < today()) {
       return "Encerrado";
     }
 
     return "Vigente";
-  };
+  }
 
-  const paidFor = (year, contractId) =>
-    sum(
-      db.payments.filter(p =>
-        p.data?.startsWith(String(year)) &&
-        getContract(p.contractId) &&
-        (!contractId || p.contractId === contractId)
+  function paymentsFor(year, contractId = null) {
+    return total(
+      db.payments.filter(row =>
+        row.data?.startsWith(String(year)) &&
+        contract(row.contractId) &&
+        (!contractId || row.contractId === contractId)
       )
     );
+  }
 
-  const openPending = () =>
-    db.pendencias.filter(p =>
-      p.status !== "concluido" &&
-      getContract(p.contractId)
+  function openPending() {
+    return db.pendencias.filter(row =>
+      row.status !== "concluido" &&
+      contract(row.contractId)
     );
+  }
 
-  const tag = text => `
-    <span class="pill ${
-      {
-        "Vigente": "green",
-        "A iniciar": "blue",
-        "Encerrado": "red",
-        "Pendente": "orange",
-        "Concluída": "green"
-      }[text] || ""
-    }">${escapeHTML(text)}</span>
-  `;
+  function pill(text) {
+    const color = {
+      "Vigente": "green",
+      "A iniciar": "blue",
+      "Encerrado": "red",
+      "Concluída": "green",
+      "Pendente": "orange"
+    }[text] || "";
 
-  const emptyRows = n => `
-    <tr>
-      <td class="empty" colspan="${n}">
-        Nenhum registro encontrado.
+    return `<span class="pill ${color}">${esc(text)}</span>`;
+  }
+
+  const emptyTable = cols =>
+    `<tr><td class="empty" colspan="${cols}">
+      Nenhum registro encontrado.
+    </td></tr>`;
+
+  const emptyCards = message =>
+    `<div class="empty">${esc(message)}</div>`;
+
+  function tableActions(type, id) {
+    return `
+      <td class="table-actions">
+        <button type="button"
+          data-edit="${type}" data-id="${esc(id)}">
+          Editar
+        </button>
+        <button type="button" class="delete"
+          data-delete="${type}" data-id="${esc(id)}">
+          Excluir
+        </button>
       </td>
-    </tr>
-  `;
+    `;
+  }
 
-  const emptyCards = text =>
-    `<div class="empty">${escapeHTML(text)}</div>`;
-
-  const actionButtons = (kind, id) => `
-    <td class="table-actions">
-      <button type="button" data-edit="${kind}"
-        data-id="${escapeHTML(id)}">Editar</button>
-      <button type="button" class="delete"
-        data-delete="${kind}"
-        data-id="${escapeHTML(id)}">Excluir</button>
-    </td>
-  `;
-
-  // =========================================
+  // ========================================
   // NAVEGAÇÃO
-  // =========================================
+  // ========================================
 
   function navigate(view) {
     const titles = {
@@ -340,46 +299,45 @@
       budget: "Orçamento e PLOA",
       suppliers: "Fornecedores",
       files: "Importar e exportar",
+      documents: "Central de Documentos",
       settings: "Configurações"
     };
 
     if (!titles[view]) return;
 
-    $$(".view").forEach(el => {
-      el.hidden = el.id !== `view-${view}`;
+    $$(".view").forEach(section => {
+      section.hidden = section.id !== `view-${view}`;
     });
 
-    $$(".nav-link").forEach(btn => {
-      const selected = btn.dataset.view === view;
+    $$(".nav-link").forEach(button => {
+      const active = button.dataset.view === view;
 
-      btn.classList.toggle("active", selected);
+      button.classList.toggle("active", active);
 
-      if (selected) {
-        btn.setAttribute("aria-current", "page");
+      if (active) {
+        button.setAttribute("aria-current", "page");
       } else {
-        btn.removeAttribute("aria-current");
+        button.removeAttribute("aria-current");
       }
     });
 
     $("pageTitle").textContent = titles[view];
-
     renderAll();
   }
 
-  // =========================================
+  // ========================================
   // DASHBOARD
-  // =========================================
+  // ========================================
 
   function renderDashboard() {
-    const open = openPending();
-    const plan = sum(db.contracts, "ploa2026");
-    const paid = paidFor(EXERCISE);
+    const pending = openPending();
+    const planned = total(db.contracts, "ploa2026");
+    const paid = paymentsFor(YEAR);
 
-    $("kpiActive").textContent = String(
+    $("kpiActive").textContent =
       db.contracts.filter(
-        c => contractStatus(c) === "Vigente"
-      ).length
-    );
+        item => contractStatus(item) === "Vigente"
+      ).length;
 
     $("kpiActiveSub").textContent =
       `${db.contracts.length} contrato(s) cadastrado(s)`;
@@ -387,81 +345,79 @@
     $("kpiPaid").textContent = brl(paid);
 
     $("kpiPaidSub").textContent =
-      `${db.payments.filter(p =>
-        p.data?.startsWith(String(EXERCISE)) &&
-        getContract(p.contractId)
-      ).length} pagamento(s) em ${EXERCISE}`;
+      `${
+        db.payments.filter(
+          row => row.data?.startsWith(String(YEAR)) &&
+          contract(row.contractId)
+        ).length
+      } pagamento(s) em ${YEAR}`;
 
-    $("kpiPending").textContent = brl(sum(open));
+    $("kpiPending").textContent = brl(total(pending));
 
     $("kpiPendingSub").textContent =
-      `${open.length} pendência(s) aberta(s)`;
+      `${pending.length} pendência(s) aberta(s)`;
 
-    $("kpiPloa").textContent = brl(plan);
+    $("kpiPloa").textContent = brl(planned);
 
     $("kpiPloaSub").textContent =
-      `${db.contracts.filter(
-        c => num(c.ploa2026) > 0
-      ).length} contrato(s) com valor informado`;
+      `${
+        db.contracts.filter(row => number(row.ploa2026) > 0).length
+      } contrato(s) com PLOA informado`;
 
-    // Gráfico mensal
+    // Pagamentos e pendências mensais
     const now = new Date();
 
-    const months = Array.from(
-      { length: 6 },
-      (_, i) => {
-        const d = new Date(
-          now.getFullYear(),
-          now.getMonth() - 5 + i,
-          1
-        );
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth() - 5 + index,
+        1
+      );
 
-        return `${d.getFullYear()}-${String(
-          d.getMonth() + 1
-        ).padStart(2, "0")}`;
-      }
-    );
+      return `${date.getFullYear()}-${String(
+        date.getMonth() + 1
+      ).padStart(2, "0")}`;
+    });
 
-    const data = months.map(month => ({
+    const graph = months.map(month => ({
       month,
-
-      paid: sum(
-        db.payments.filter(p =>
-          p.data?.slice(0, 7) === month &&
-          getContract(p.contractId)
+      paid: total(
+        db.payments.filter(row =>
+          row.data?.slice(0, 7) === month &&
+          contract(row.contractId)
         )
       ),
-
-      open: sum(
-        open.filter(
-          p => p.competencia === month
-        )
+      open: total(
+        pending.filter(row => row.competencia === month)
       )
     }));
 
-    const maximum = Math.max(
+    const max = Math.max(
       1,
-      ...data.flatMap(m => [m.paid, m.open])
+      ...graph.flatMap(item => [item.paid, item.open])
     );
 
-    $("monthlyChart").innerHTML = data.map(m => `
+    $("monthlyChart").innerHTML = graph.map(item => `
       <div class="chart-month">
         <div class="chart-bars">
+
           <div class="chart-bar paid"
-            style="height:${m.paid / maximum * 100}%"
-            title="Pagos: ${escapeHTML(brl(m.paid))}">
+            style="height:${item.paid / max * 100}%"
+            title="Pagos: ${esc(brl(item.paid))}">
           </div>
+
           <div class="chart-bar open"
-            style="height:${m.open / maximum * 100}%"
-            title="Pendentes: ${escapeHTML(brl(m.open))}">
+            style="height:${item.open / max * 100}%"
+            title="Pendentes: ${esc(brl(item.open))}">
           </div>
+
         </div>
-        <small>${showMonth(m.month)}</small>
+        <small>${displayMonth(item.month)}</small>
       </div>
     `).join("");
 
-    // Gráfico de situação contratual
-    const labels = [
+    // Situação dos contratos
+    const statuses = [
       "Vigente",
       "A iniciar",
       "Encerrado",
@@ -469,28 +425,25 @@
     ];
 
     const colors = [
-      "#169167",
-      "#2b83bf",
-      "#c95d64",
-      "#d9e1e9"
+      "#169167", "#2b83bf", "#c95d64", "#d9e1e9"
     ];
 
-    const counts = labels.map(label =>
+    const counts = statuses.map(status =>
       db.contracts.filter(
-        c => contractStatus(c) === label
+        item => contractStatus(item) === status
       ).length
     );
 
-    let point = 0;
+    let progress = 0;
 
-    const stops = labels.map((_, i) => {
-      const start = point;
+    const stops = statuses.map((_, index) => {
+      const start = progress;
 
-      point += db.contracts.length
-        ? counts[i] / db.contracts.length * 100
-        : 0;
+      if (db.contracts.length) {
+        progress += counts[index] / db.contracts.length * 100;
+      }
 
-      return `${colors[i]} ${start}% ${point}%`;
+      return `${colors[index]} ${start}% ${progress}%`;
     });
 
     $("statusDonut").style.background =
@@ -498,20 +451,21 @@
         ? `conic-gradient(${stops.join(",")})`
         : "#e6edf3";
 
-    $("statusLegend").innerHTML =
-      labels.map((s, i) => `
+    $("statusLegend").innerHTML = statuses.map(
+      (status, index) => `
         <div class="donut-line">
           <span>
-            <i style="background:${colors[i]}"></i>
-            ${s}
+            <i style="background:${colors[index]}"></i>
+            ${status}
           </span>
-          <b>${counts[i]}</b>
+          <b>${counts[index]}</b>
         </div>
-      `).join("");
+      `
+    ).join("");
 
     // Últimos pagamentos
-    const recent = db.payments
-      .filter(p => getContract(p.contractId))
+    const recentPayments = db.payments
+      .filter(item => contract(item.contractId))
       .slice()
       .sort((a, b) =>
         (b.data || "").localeCompare(a.data || "")
@@ -519,158 +473,138 @@
       .slice(0, 5);
 
     $("recentPayments").innerHTML =
-      recent.map(p => `
-        <div class="activity-row">
-          <div>
-            <strong>
-              ${escapeHTML(
-                supplierName(getContract(p.contractId))
-              )}
-            </strong>
-            <small>
-              ${showDate(p.data)} ·
-              ${escapeHTML(
-                getContract(p.contractId)?.numero || "Contrato"
-              )}
-            </small>
-          </div>
-          <b>${brl(p.valor)}</b>
-        </div>
-      `).join("") ||
-      emptyCards("Nenhum pagamento registrado.");
+      recentPayments.map(item => {
+        const c = contract(item.contractId);
 
-    // Pendências abertas
-    $("recentPending").innerHTML = open
+        return `
+          <div class="activity-row">
+            <div>
+              <strong>${esc(supplierName(c))}</strong>
+              <small>
+                ${displayDate(item.data)} ·
+                ${esc(c?.numero || "Contrato")}
+              </small>
+            </div>
+            <b>${brl(item.valor)}</b>
+          </div>
+        `;
+      }).join("") ||
+      emptyCards("Nenhum pagamento cadastrado.");
+
+    $("recentPending").innerHTML = pending
       .slice()
       .sort((a, b) =>
-        (b.competencia || "").localeCompare(
-          a.competencia || ""
-        )
+        (b.competencia || "").localeCompare(a.competencia || "")
       )
       .slice(0, 5)
-      .map(p => `
+      .map(item => `
         <div class="activity-row">
           <div>
             <strong>
-              ${escapeHTML(
-                supplierName(getContract(p.contractId))
-              )}
+              ${esc(supplierName(contract(item.contractId)))}
             </strong>
-            <small>Competência ${showMonth(p.competencia)}</small>
+            <small>Competência ${displayMonth(item.competencia)}</small>
           </div>
-          <b>${brl(p.valor)}</b>
+          <b>${brl(item.valor)}</b>
         </div>
       `).join("") ||
       emptyCards("Nenhuma pendência aberta.");
   }
 
-  // =========================================
+  // ========================================
   // FORNECEDORES
-  // =========================================
+  // ========================================
 
   function renderSuppliers() {
-    const search = normalize(
-      $("searchSuppliers").value
-    );
+    const search = norm($("searchSuppliers").value);
 
-    const rows = db.suppliers
-      .filter(s =>
-        normalize(`${s.nome} ${s.cnpj}`).includes(search)
-      )
-      .slice()
-      .sort((a, b) =>
-        (a.nome || "").localeCompare(
-          b.nome || "",
-          "pt-BR"
-        )
-      );
+    const rows = db.suppliers.filter(item =>
+      norm(`${item.nome} ${item.cnpj}`).includes(search)
+    );
 
     $("countSuppliers").textContent =
       `${rows.length} fornecedor(es)`;
 
-    $("rowsSuppliers").innerHTML =
-      rows.map(s => `
-        <tr>
-          <td><strong>${escapeHTML(s.nome)}</strong></td>
-          <td>${escapeHTML(s.cnpj)}</td>
-          <td>${escapeHTML(s.email || s.telefone || "—")}</td>
-          <td>${
+    $("rowsSuppliers").innerHTML = rows.map(item => `
+      <tr>
+        <td><strong>${esc(item.nome)}</strong></td>
+        <td>${esc(item.cnpj)}</td>
+        <td>${esc(item.email || item.telefone || "—")}</td>
+        <td>
+          ${
             db.contracts.filter(
-              c => c.supplier === s.id
+              c => c.supplier === item.id
             ).length
-          }</td>
-          ${actionButtons("suppliers", s.id)}
-        </tr>
-      `).join("") || emptyRows(5);
+          }
+        </td>
+        ${tableActions("suppliers", item.id)}
+      </tr>
+    `).join("") || emptyTable(5);
   }
 
-  // =========================================
+  // ========================================
   // CONTRATOS
-  // =========================================
+  // ========================================
 
   function renderContracts() {
-    const search = normalize(
-      $("searchContracts").value
-    );
+    const search = norm($("searchContracts").value);
+    const statusFilter = $("filterContractStatus").value;
 
-    const filter = $("filterContractStatus").value;
-
-    const rows = db.contracts.filter(c =>
-      normalize(
-        `${c.numero} ${c.processo} ${c.objeto} ${supplierName(c)}`
+    const rows = db.contracts.filter(item =>
+      norm(
+        `${item.numero} ${item.processo} ${item.objeto} ${
+          supplierName(item)
+        }`
       ).includes(search) &&
       (
-        filter === "todos" ||
-        contractStatus(c) === filter
+        statusFilter === "todos" ||
+        contractStatus(item) === statusFilter
       )
     );
 
     $("countContracts").textContent =
       `${rows.length} contrato(s)`;
 
-    $("rowsContracts").innerHTML =
-      rows.map(c => `
-        <tr>
-          <td>
-            <strong>${escapeHTML(c.numero || "—")}</strong>
-            <small>${escapeHTML(c.processo || "—")}</small>
-          </td>
-          <td>${escapeHTML(supplierName(c))}</td>
-          <td>
-            ${showDate(c.vigenciaInicial)}
-            a ${showDate(c.vigenciaFinal)}
-          </td>
-          <td>${brl(c.valorGlobal)}</td>
-          <td>${tag(contractStatus(c))}</td>
-          ${actionButtons("contracts", c.id)}
-        </tr>
-      `).join("") || emptyRows(6);
+    $("rowsContracts").innerHTML = rows.map(item => `
+      <tr>
+        <td>
+          <strong>${esc(item.numero || "—")}</strong>
+          <small>${esc(item.processo || "—")}</small>
+        </td>
+
+        <td>${esc(supplierName(item))}</td>
+
+        <td>
+          ${displayDate(item.vigenciaInicial)}
+          a ${displayDate(item.vigenciaFinal)}
+        </td>
+
+        <td>${brl(item.valorGlobal)}</td>
+        <td>${pill(contractStatus(item))}</td>
+
+        ${tableActions("contracts", item.id)}
+      </tr>
+    `).join("") || emptyTable(6);
   }
 
-  // =========================================
+  // ========================================
   // PAGAMENTOS
-  // =========================================
+  // ========================================
 
   function renderPayments() {
-    const search = normalize(
-      $("searchPayments").value
-    );
-
+    const search = norm($("searchPayments").value);
     const month = $("filterPaymentMonth").value;
 
     const rows = db.payments
-      .filter(p => {
-        const c = getContract(p.contractId);
+      .filter(item => {
+        const c = contract(item.contractId);
 
         return c &&
-          (!month || p.competencia === month) &&
-          normalize(
-            `${supplierName(c)}
-             ${c.numero}
-             ${c.processo}
-             ${p.notaFiscal}
-             ${p.empenho}
-             ${p.descricao}`
+          (!month || item.competencia === month) &&
+          norm(
+            `${supplierName(c)} ${c.numero} ${c.processo} ${
+              item.notaFiscal
+            } ${item.empenho} ${item.descricao}`
           ).includes(search);
       })
       .slice()
@@ -679,65 +613,55 @@
       );
 
     $("countPayments").textContent =
-      `${rows.length} pagamento(s) · ${brl(sum(rows))}`;
+      `${rows.length} pagamento(s) · ${brl(total(rows))}`;
 
-    $("rowsPayments").innerHTML =
-      rows.map(p => {
-        const c = getContract(p.contractId);
+    $("rowsPayments").innerHTML = rows.map(item => {
+      const c = contract(item.contractId);
 
-        return `
-          <tr>
-            <td>${showDate(p.data)}</td>
-            <td>
-              <strong>${escapeHTML(supplierName(c))}</strong>
-              <small>
-                ${escapeHTML(c.numero || c.processo || "—")}
-              </small>
-            </td>
-            <td>${showMonth(p.competencia)}</td>
-            <td>
-              ${escapeHTML(
-                p.notaFiscal || p.descricao || "—"
-              )}
-            </td>
-            <td><strong>${brl(p.valor)}</strong></td>
-            ${actionButtons("payments", p.id)}
-          </tr>
-        `;
-      }).join("") || emptyRows(6);
+      return `
+        <tr>
+          <td>${displayDate(item.data)}</td>
+
+          <td>
+            <strong>${esc(supplierName(c))}</strong>
+            <small>${esc(c.numero || c.processo || "—")}</small>
+          </td>
+
+          <td>${displayMonth(item.competencia)}</td>
+          <td>${esc(item.notaFiscal || item.descricao || "—")}</td>
+          <td><strong>${brl(item.valor)}</strong></td>
+
+          ${tableActions("payments", item.id)}
+        </tr>
+      `;
+    }).join("") || emptyTable(6);
   }
 
-  // =========================================
+  // ========================================
   // PENDÊNCIAS
-  // =========================================
+  // ========================================
 
   function renderPending() {
-    const search = normalize(
-      $("searchPending").value
-    );
-
+    const search = norm($("searchPending").value);
     const filter = $("filterPendingStatus").value;
 
     const rows = db.pendencias
-      .filter(p => {
-        const c = getContract(p.contractId);
+      .filter(item => {
+        const c = contract(item.contractId);
 
         return c &&
           (
             filter === "todos" ||
             (
               filter === "concluido"
-                ? p.status === "concluido"
-                : p.status !== "concluido"
+                ? item.status === "concluido"
+                : item.status !== "concluido"
             )
           ) &&
-          normalize(
-            `${supplierName(c)}
-             ${c.numero}
-             ${c.processo}
-             ${p.referencia}
-             ${p.competencia}
-             ${p.observacoes}`
+          norm(
+            `${supplierName(c)} ${c.numero} ${c.processo} ${
+              item.referencia
+            } ${item.competencia} ${item.observacoes}`
           ).includes(search);
       })
       .slice()
@@ -748,85 +672,85 @@
       );
 
     $("countPending").textContent =
-      `${rows.length} registro(s) · ${brl(sum(rows))}`;
+      `${rows.length} registro(s) · ${brl(total(rows))}`;
 
-    $("pendingCards").innerHTML =
-      rows.map(p => {
-        const c = getContract(p.contractId);
-        const finished = p.status === "concluido";
+    $("pendingCards").innerHTML = rows.map(item => {
+      const c = contract(item.contractId);
+      const done = item.status === "concluido";
 
-        return `
-          <article class="pending-card">
-            <div class="pending-top">
-              <div>
-                <h3>${escapeHTML(supplierName(c))}</h3>
-                <div class="pending-meta">
-                  Contrato: ${escapeHTML(c.numero || "—")}
-                  · Competência: ${showMonth(p.competencia)}
-                  <br>
-                  Processo: ${escapeHTML(c.processo || "—")}
-                  <br>
-                  Referência: ${escapeHTML(p.referencia || "—")}
-                  ${
-                    p.vencimento
-                      ? `<br>Vencimento: ${showDate(p.vencimento)}`
-                      : ""
-                  }
-                </div>
-              </div>
-              <div class="pending-amount">
-                ${tag(finished ? "Concluída" : "Pendente")}
-                <strong>${brl(p.valor)}</strong>
+      return `
+        <article class="pending-card">
+
+          <div class="pending-top">
+            <div>
+              <h3>${esc(supplierName(c))}</h3>
+
+              <div class="pending-meta">
+                Contrato: ${esc(c.numero || "—")}
+                · Competência: ${displayMonth(item.competencia)}
+                <br>
+                Processo: ${esc(c.processo || "—")}
+                <br>
+                Referência: ${esc(item.referencia || "—")}
+                ${
+                  item.vencimento
+                    ? `<br>Vencimento: ${displayDate(item.vencimento)}`
+                    : ""
+                }
               </div>
             </div>
 
-            <div class="button-row">
-              <button type="button" class="btn secondary small"
-                data-edit="pendencias"
-                data-id="${escapeHTML(p.id)}">
-                Editar
-              </button>
-
-              <button type="button" class="btn danger small"
-                data-delete="pendencias"
-                data-id="${escapeHTML(p.id)}">
-                Excluir
-              </button>
-
-              <button type="button"
-                class="btn ${finished ? "secondary" : "success"} small"
-                data-toggle="${escapeHTML(p.id)}">
-                ${finished ? "Reabrir" : "Marcar como concluída"}
-              </button>
+            <div class="pending-amount">
+              ${pill(done ? "Concluída" : "Pendente")}
+              <strong>${brl(item.valor)}</strong>
             </div>
-          </article>
-        `;
-      }).join("") ||
-      emptyCards("Nenhuma pendência encontrada.");
+          </div>
+
+          <div class="button-row">
+            <button type="button" class="btn secondary small"
+              data-edit="pendencias" data-id="${esc(item.id)}">
+              Editar
+            </button>
+
+            <button type="button" class="btn danger small"
+              data-delete="pendencias" data-id="${esc(item.id)}">
+              Excluir
+            </button>
+
+            <button type="button"
+              class="btn ${done ? "secondary" : "success"} small"
+              data-toggle="${esc(item.id)}">
+              ${done ? "Reabrir" : "Marcar como concluída"}
+            </button>
+          </div>
+
+        </article>
+      `;
+    }).join("") || emptyCards("Nenhuma pendência encontrada.");
   }
 
-  // =========================================
+  // ========================================
   // ORÇAMENTO
-  // =========================================
+  // ========================================
 
   function renderBudget() {
-    const ploa = sum(db.contracts, "ploa2026");
-    const paid = paidFor(EXERCISE);
-    const last = sum(db.contracts, "gastoAnual2025");
+    const planned = total(db.contracts, "ploa2026");
+    const paid = paymentsFor(YEAR);
+    const previous = total(db.contracts, "gastoAnual2025");
 
     $("budgetSummary").innerHTML = [
-      ["PLOA 2026", ploa],
+      ["PLOA 2026", planned],
       ["Pagamentos 2026", paid],
-      ["Gasto 2025 informado", last]
-    ].map(([name, value]) => `
+      ["Gasto 2025 informado", previous]
+    ].map(([label, value]) => `
       <article class="summary-item">
-        <small>${name}</small>
+        <small>${label}</small>
         <strong>${brl(value)}</strong>
       </article>
     `).join("");
 
-    const ratio = ploa > 0
-      ? paid / ploa * 100
+    const ratio = planned > 0
+      ? paid / planned * 100
       : null;
 
     $("budgetPercent").textContent =
@@ -837,46 +761,45 @@
     $("budgetBar").style.width =
       `${Math.min(100, Math.max(0, ratio || 0))}%`;
 
-    $("rowsBudget").innerHTML =
-      db.contracts.map(c => {
-        const paidContract = paidFor(EXERCISE, c.id);
-        const p = num(c.ploa2026);
+    $("rowsBudget").innerHTML = db.contracts.map(item => {
+      const paidContract = paymentsFor(YEAR, item.id);
+      const plan = number(item.ploa2026);
 
-        const ratioContract = p > 0
-          ? `${(paidContract / p * 100)
-              .toFixed(1).replace(".", ",")}%`
-          : "—";
+      const percent = plan > 0
+        ? `${(paidContract / plan * 100)
+            .toFixed(1).replace(".", ",")}%`
+        : "—";
 
-        return `
-          <tr>
-            <td>
-              <strong>${escapeHTML(supplierName(c))}</strong>
-              <small>
-                ${escapeHTML(c.numero || c.processo || "—")}
-              </small>
-            </td>
-            <td>${brl(c.gastoAnual2025)}</td>
-            <td>${brl(c.ploa2026)}</td>
-            <td>${brl(paidContract)}</td>
-            <td>${ratioContract}</td>
-            <td class="table-actions">
-              <button type="button"
-                data-edit="contracts"
-                data-id="${escapeHTML(c.id)}">
-                Editar
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join("") || emptyRows(6);
+      return `
+        <tr>
+          <td>
+            <strong>${esc(supplierName(item))}</strong>
+            <small>
+              ${esc(item.numero || item.processo || "—")}
+            </small>
+          </td>
+          <td>${brl(item.gastoAnual2025)}</td>
+          <td>${brl(item.ploa2026)}</td>
+          <td>${brl(paidContract)}</td>
+          <td>${percent}</td>
+
+          <td class="table-actions">
+            <button type="button" data-edit="contracts"
+              data-id="${esc(item.id)}">
+              Editar
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join("") || emptyTable(6);
   }
 
   function renderSettings() {
     $("storageInfo").textContent =
-      `${db.suppliers.length} fornecedores · ` +
-      `${db.contracts.length} contratos · ` +
-      `${db.payments.length} pagamentos · ` +
-      `${db.pendencias.length} pendências`;
+      `${db.suppliers.length} fornecedor(es) · ` +
+      `${db.contracts.length} contrato(s) · ` +
+      `${db.payments.length} pagamento(s) · ` +
+      `${db.pendencias.length} pendência(s)`;
   }
 
   function renderAll() {
@@ -889,43 +812,18 @@
     renderSettings();
   }
 
-  // =========================================
-  // FORMULÁRIOS ESPECÍFICOS
-  // =========================================
+  // ========================================
+  // FORMULÁRIOS
+  // ========================================
 
   const dialogs = {
-    suppliers: [
-      "supplierDialog",
-      "supplierForm",
-      "Fornecedor"
-    ],
-    contracts: [
-      "contractDialog",
-      "contractForm",
-      "Contrato"
-    ],
-    payments: [
-      "paymentDialog",
-      "paymentForm",
-      "Pagamento"
-    ],
-    pendencias: [
-      "pendingDialog",
-      "pendingForm",
-      "Pendência"
-    ]
+    suppliers: ["supplierDialog", "supplierForm", "Fornecedor"],
+    contracts: ["contractDialog", "contractForm", "Contrato"],
+    payments: ["paymentDialog", "paymentForm", "Pagamento"],
+    pendencias: ["pendingDialog", "pendingForm", "Pendência"]
   };
 
-  function optionsForContracts() {
-    return [...db.contracts].sort((a, b) =>
-      contractLabel(a).localeCompare(
-        contractLabel(b),
-        "pt-BR"
-      )
-    );
-  }
-
-  function rebuildSelects() {
+  function refreshSelects() {
     const supplierSelect = $("contractSupplier");
 
     supplierSelect.replaceChildren(
@@ -935,26 +833,34 @@
     [...db.suppliers]
       .sort((a, b) =>
         (a.nome || "").localeCompare(
-          b.nome || "",
-          "pt-BR"
+          b.nome || "", "pt-BR"
         )
       )
-      .forEach(s =>
+      .forEach(item => {
         supplierSelect.add(
-          new Option(`${s.nome} — ${s.cnpj}`, s.id)
-        )
-      );
+          new Option(
+            `${item.nome} — ${item.cnpj}`,
+            item.id
+          )
+        );
+      });
 
-    $$('[data-contract-select]').forEach(select => {
+    $$("[data-contract-select]").forEach(select => {
       select.replaceChildren(
         new Option("Selecione um contrato", "")
       );
 
-      optionsForContracts().forEach(c =>
-        select.add(
-          new Option(contractLabel(c), c.id)
+      [...db.contracts]
+        .sort((a, b) =>
+          contractName(a).localeCompare(
+            contractName(b), "pt-BR"
+          )
         )
-      );
+        .forEach(item => {
+          select.add(
+            new Option(contractName(item), item.id)
+          );
+        });
     });
   }
 
@@ -964,31 +870,30 @@
     $$("[name]", form).forEach(input => {
       input.value =
         Object.prototype.hasOwnProperty.call(
-          record,
-          "" + input.name
+          record, input.name
         )
-          ? (record[input.name] ?? "")
+          ? record[input.name] ?? ""
           : "";
     });
   }
 
   function updateCCT() {
-    const f = $("contractForm").elements;
+    const fields = $("contractForm").elements;
 
-    const salary = num(
-      f.namedItem("salario").value
+    const salary = number(
+      fields.namedItem("salario").value
     );
 
-    const charges = num(
-      f.namedItem("encargos").value
+    const charges = number(
+      fields.namedItem("encargos").value
     );
 
-    const posts = num(
-      f.namedItem("postos").value
+    const posts = number(
+      fields.namedItem("postos").value
     );
 
-    const materials = num(
-      f.namedItem("materiais").value
+    const materials = number(
+      fields.namedItem("materiais").value
     );
 
     $("cctEstimate").value = brl(
@@ -998,9 +903,7 @@
 
   function openForm(type, id = null) {
     if (type === "contracts" && !db.suppliers.length) {
-      toast(
-        "Cadastre um fornecedor antes de cadastrar contratos."
-      );
+      toast("Cadastre um fornecedor primeiro.");
       navigate("suppliers");
       return;
     }
@@ -1009,45 +912,42 @@
       ["payments", "pendencias"].includes(type) &&
       !db.contracts.length
     ) {
-      toast(
-        "Cadastre um contrato antes de registrar pagamentos ou pendências."
-      );
+      toast("Cadastre um contrato primeiro.");
       navigate("contracts");
       return;
     }
 
     const [dialogId, formId, label] = dialogs[type];
 
-    activeEdit = { type, id };
-    rebuildSelects();
+    editing = { type, id };
+    refreshSelects();
 
-    const record = db[type].find(
-      item => item.id === id
-    ) || {};
+    const record =
+      db[type].find(item => item.id === id) || {};
 
-    fillForm($(formId), record);
+    const form = $(formId);
+    fillForm(form, record);
 
     if (type === "payments" && !id) {
-      $(formId).elements.namedItem("data").value =
-        isoToday();
+      form.elements.namedItem("data").value = today();
     }
 
     if (type === "pendencias" && !id) {
-      $(formId).elements.namedItem("competencia").value =
-        isoToday().slice(0, 7);
+      form.elements.namedItem("competencia").value =
+        today().slice(0, 7);
 
-      $(formId).elements.namedItem("status").value =
+      form.elements.namedItem("status").value =
         "aberto";
     }
 
-    if (type === "contracts") {
-      updateCCT();
-    }
+    if (type === "contracts") updateCCT();
 
-    const prefix =
-      type === "suppliers" ? "supplier" :
-      type === "contracts" ? "contract" :
-      type === "payments" ? "payment" : "pending";
+    const prefix = {
+      suppliers: "supplier",
+      contracts: "contract",
+      payments: "payment",
+      pendencias: "pending"
+    }[type];
 
     $(`${prefix}DialogTitle`).textContent =
       `${id ? "Editar" : "Cadastrar"} ${label.toLowerCase()}`;
@@ -1055,29 +955,24 @@
     $(dialogId).showModal();
   }
 
-  function formData(form) {
-    return Object.fromEntries(
-      new FormData(form).entries()
-    );
-  }
-
-  function validISODate(s) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s || "")) {
+  function validDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) {
       return false;
     }
 
-    const [y, m, d] = s.split("-").map(Number);
-    const check = new Date(Date.UTC(y, m - 1, d));
+    const [y, m, d] = value.split("-").map(Number);
+    const test = new Date(Date.UTC(y, m - 1, d));
 
     return (
-      check.getUTCFullYear() === y &&
-      check.getUTCMonth() === m - 1 &&
-      check.getUTCDate() === d
+      test.getUTCFullYear() === y &&
+      test.getUTCMonth() === m - 1 &&
+      test.getUTCDate() === d
     );
   }
 
-  const validMonth = s =>
-    /^\d{4}-(0[1-9]|1[0-2])$/.test(s || "");
+  function validMonth(value) {
+    return /^\d{4}-(0[1-9]|1[0-2])$/.test(value || "");
+  }
 
   function validateRecord(type, record, state, excludeId = null) {
     if (type === "suppliers") {
@@ -1086,13 +981,13 @@
       }
 
       if (digits(record.cnpj).length !== 14) {
-        throw Error("O CNPJ deve conter 14 dígitos.");
+        throw Error("CNPJ deve conter 14 dígitos.");
       }
 
       if (
-        state.suppliers.some(s =>
-          s.id !== excludeId &&
-          digits(s.cnpj) === digits(record.cnpj)
+        state.suppliers.some(item =>
+          item.id !== excludeId &&
+          digits(item.cnpj) === digits(record.cnpj)
         )
       ) {
         throw Error("CNPJ já cadastrado.");
@@ -1100,52 +995,49 @@
     }
 
     if (type === "contracts") {
-      if (!getSupplier(record.supplier, state)) {
+      if (!supplier(record.supplier, state)) {
         throw Error("Selecione um fornecedor válido.");
       }
 
       if (!String(record.processo || "").trim()) {
-        throw Error("Informe o processo contratual.");
+        throw Error("Processo contratual obrigatório.");
       }
 
       if (
-        !validISODate(record.vigenciaInicial) ||
-        !validISODate(record.vigenciaFinal) ||
+        !validDate(record.vigenciaInicial) ||
+        !validDate(record.vigenciaFinal) ||
         record.vigenciaFinal < record.vigenciaInicial
       ) {
-        throw Error("Informe uma vigência inicial e final válida.");
+        throw Error("Vigência inválida.");
       }
 
-      for (const key of [...moneyKeys, ...integerKeys]) {
+      for (const key of [...moneyFields, ...integerFields]) {
         if (
           record[key] === "" ||
           record[key] === undefined
-        ) {
-          continue;
+        ) continue;
+
+        const value = Number(record[key]);
+
+        if (!Number.isFinite(value) || value < 0) {
+          throw Error(`Valor inválido: ${key}.`);
         }
 
         if (
-          !Number.isFinite(Number(record[key])) ||
-          Number(record[key]) < 0
+          integerFields.includes(key) &&
+          !Number.isInteger(value)
         ) {
-          throw Error(`Valor inválido no campo ${key}.`);
-        }
-
-        if (
-          integerKeys.includes(key) &&
-          !Number.isInteger(Number(record[key]))
-        ) {
-          throw Error(`O campo ${key} deve ser inteiro.`);
+          throw Error(`${key} deve ser inteiro.`);
         }
       }
     }
 
     if (type === "payments") {
-      if (!getContract(record.contractId, state)) {
+      if (!contract(record.contractId, state)) {
         throw Error("Contrato inválido.");
       }
 
-      if (!validISODate(record.data)) {
+      if (!validDate(record.data)) {
         throw Error("Data do pagamento inválida.");
       }
 
@@ -1160,14 +1052,12 @@
         !Number.isFinite(Number(record.valor)) ||
         Number(record.valor) <= 0
       ) {
-        throw Error(
-          "O pagamento deve ter valor maior que zero."
-        );
+        throw Error("Valor do pagamento inválido.");
       }
     }
 
     if (type === "pendencias") {
-      if (!getContract(record.contractId, state)) {
+      if (!contract(record.contractId, state)) {
         throw Error("Contrato inválido.");
       }
 
@@ -1179,40 +1069,46 @@
         !Number.isFinite(Number(record.valor)) ||
         Number(record.valor) < 0
       ) {
-        throw Error("Informe um valor não negativo.");
+        throw Error("Valor da pendência inválido.");
       }
 
       if (
         record.vencimento &&
-        !validISODate(record.vencimento)
+        !validDate(record.vencimento)
       ) {
         throw Error("Vencimento inválido.");
       }
 
-      if (!["aberto", "concluido"].includes(record.status)) {
+      if (
+        !["aberto", "concluido"].includes(record.status)
+      ) {
         throw Error("Situação inválida.");
       }
     }
   }
 
-  function submitRecord(e, type) {
-    e.preventDefault();
+  function submitRecord(event, type) {
+    event.preventDefault();
 
-    const row = formData(e.currentTarget);
+    const form = event.currentTarget;
+    const values = Object.fromEntries(
+      new FormData(form).entries()
+    );
+
     const next = clone(db);
 
     const editId =
-      activeEdit.type === type
-        ? activeEdit.id
+      editing.type === type
+        ? editing.id
         : null;
 
     const index = next[type].findIndex(
-      x => x.id === editId
+      item => item.id === editId
     );
 
     const record = {
       ...(index >= 0 ? next[type][index] : {}),
-      ...row,
+      ...values,
       id: index >= 0 ? editId : uuid()
     };
 
@@ -1229,8 +1125,8 @@
 
     try {
       validateRecord(type, record, next, editId);
-    } catch (err) {
-      toast(err.message);
+    } catch (error) {
+      toast(error.message);
       return;
     }
 
@@ -1240,82 +1136,72 @@
       next[type].push(record);
     }
 
-    if (persist(next)) {
+    if (saveDB(next)) {
       $(dialogs[type][0]).close();
-      toast("Registro salvo com sucesso.");
+      toast("Registro salvo.");
     }
   }
 
-  // =========================================
-  // EXCLUSÃO E ALTERAÇÃO DE SITUAÇÃO
-  // =========================================
+  // ========================================
+  // EXCLUIR E CONCLUIR
+  // ========================================
 
   function deleteRecord(type, id) {
     const next = clone(db);
 
-    if (!next[type].some(row => row.id === id)) {
+    if (!next[type].some(item => item.id === id)) {
       return;
     }
 
     if (
       type === "suppliers" &&
-      next.contracts.some(c => c.supplier === id)
+      next.contracts.some(item => item.supplier === id)
     ) {
-      toast(
-        "Este fornecedor possui contratos. Exclua-os antes."
-      );
+      toast("Fornecedor possui contratos vinculados.");
       return;
     }
 
     if (type === "contracts") {
-      const pay = next.payments.filter(
-        p => p.contractId === id
+      const payments = next.payments.filter(
+        item => item.contractId === id
       ).length;
 
       const pending = next.pendencias.filter(
-        p => p.contractId === id
+        item => item.contractId === id
       ).length;
 
       if (
         !confirm(
-          `Excluir este contrato? Também serão excluídos ` +
-          `${pay} pagamento(s) e ${pending} pendência(s) ` +
-          `vinculados. Esta ação não pode ser desfeita.`
+          `Excluir contrato e também ${payments} ` +
+          `pagamento(s) e ${pending} pendência(s)?`
         )
-      ) {
-        return;
-      }
+      ) return;
 
       next.payments = next.payments.filter(
-        p => p.contractId !== id
+        item => item.contractId !== id
       );
 
       next.pendencias = next.pendencias.filter(
-        p => p.contractId !== id
+        item => item.contractId !== id
       );
 
-    } else if (
-      !confirm(
-        "Excluir este registro? Esta ação não pode ser desfeita."
-      )
-    ) {
+    } else if (!confirm("Excluir este registro?")) {
       return;
     }
 
     next[type] = next[type].filter(
-      row => row.id !== id
+      item => item.id !== id
     );
 
-    if (persist(next)) {
+    if (saveDB(next)) {
       toast("Registro excluído.");
     }
   }
 
   function togglePending(id) {
     const next = clone(db);
-
     const item = next.pendencias.find(
-      p => p.id === id
+      row => row.id === id
     );
 
     if (!item) return;
@@ -1325,42 +1211,41 @@
         ? "aberto"
         : "concluido";
 
-    if (persist(next)) {
+    if (saveDB(next)) {
       toast(
-        "Situação alterada. Isso não registra pagamento automaticamente."
+        "Situação atualizada. Nenhum pagamento foi criado."
       );
     }
   }
 
-  // =========================================
-  // DOWNLOAD DE ARQUIVOS
-  // =========================================
+  // ========================================
+  // DOWNLOADS
+  // ========================================
 
-  function download(filename, content, mime) {
+  function download(filename, text, mime) {
     const url = URL.createObjectURL(
-      new Blob([content], { type: mime })
+      new Blob([text], { type: mime })
     );
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
+    const link = document.createElement("a");
 
-    document.body.append(a);
-    a.click();
-    a.remove();
+    link.href = url;
+    link.download = filename;
 
-    setTimeout(
-      () => URL.revokeObjectURL(url),
-      1500
-    );
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1500);
   }
 
-  // Proteção contra fórmulas em planilhas
   function csvCell(value) {
     let text = String(value ?? "");
 
     if (
-      /^[\s]*[=+@-]/.test(text) &&
+      /^\s*[=+@-]/.test(text) &&
       !/^-?\d+(?:[.,]\d+)?$/.test(text.trim())
     ) {
       text = "'" + text;
@@ -1369,19 +1254,19 @@
     return `"${text.replace(/"/g, '""')}"`;
   }
 
-  function enriched(type, row) {
+  function exportRow(type, item) {
     if (type === "suppliers") {
-      return { ...row };
+      return { ...item };
     }
 
     const c = type === "contracts"
-      ? row
-      : getContract(row.contractId);
+      ? item
+      : contract(item.contractId);
 
-    const s = getSupplier(c?.supplier);
+    const s = supplier(c?.supplier);
 
     return {
-      ...row,
+      ...item,
       empresa: s?.nome || "",
       cnpj: s?.cnpj || "",
       ...(
@@ -1395,54 +1280,48 @@
     };
   }
 
-  // =========================================
-  // EXPORTAR CSV
-  // =========================================
-
   function exportCSV(type) {
-    if (!db[type].length) {
+    const rows = db[type];
+
+    if (!rows.length) {
       toast("Nenhum registro para exportar.");
       return;
     }
 
-    const rows = db[type].map(
-      row => enriched(type, row)
+    const enriched = rows.map(
+      item => exportRow(type, item)
     );
 
     const headers = [
       ...new Set([
         ...columns[type],
-        ...rows.flatMap(row => Object.keys(row))
+        ...enriched.flatMap(item => Object.keys(item))
       ])
     ];
 
-    const text = "\uFEFF" + [
+    const csv = "\uFEFF" + [
       headers.map(csvCell).join(";"),
-      ...rows.map(row =>
+      ...enriched.map(item =>
         headers.map(
-          key => csvCell(row[key])
+          key => csvCell(item[key])
         ).join(";")
       )
     ].join("\r\n");
 
     download(
-      `CAF-${type}-${isoToday()}.csv`,
-      text,
+      `CAF-${type}-${today()}.csv`,
+      csv,
       "text/csv;charset=utf-8"
     );
 
     toast("CSV exportado.");
   }
 
-  // =========================================
-  // MODELOS CSV VAZIOS
-  // =========================================
-
   function exportTemplate(type) {
     const headers = columns[type].filter(
-      k => ![
+      key => ![
         "id", "supplier", "contractId", "empresa"
-      ].includes(k)
+      ].includes(key)
     );
 
     if (
@@ -1459,28 +1338,28 @@
     );
   }
 
-  // =========================================
-  // BACKUP JSON
-  // =========================================
-
   function exportBackup() {
     download(
-      `CAF-backup-${isoToday()}.json`,
+      `CAF-backup-${today()}.json`,
       JSON.stringify(db, null, 2),
       "application/json;charset=utf-8"
     );
 
-    toast("Backup JSON exportado.");
+    toast("Backup exportado.");
   }
 
-  function validateBackup(value) {
+  // ========================================
+  // RESTAURAR BACKUP
+  // ========================================
+
+  function validateBackup(data) {
     if (
-      !value ||
-      typeof value !== "object" ||
-      Array.isArray(value) ||
-      TYPES.some(t => !Array.isArray(value[t]))
+      !data ||
+      typeof data !== "object" ||
+      Array.isArray(data) ||
+      TYPES.some(type => !Array.isArray(data[type]))
     ) {
-      throw Error("Backup sem tabelas necessárias.");
+      throw Error("Backup incompatível.");
     }
 
     const ids = {};
@@ -1488,34 +1367,32 @@
     for (const type of TYPES) {
       ids[type] = new Set();
 
-      for (const row of value[type]) {
+      for (const item of data[type]) {
         if (
-          !row ||
-          typeof row !== "object" ||
-          Array.isArray(row) ||
-          typeof row.id !== "string" ||
-          !row.id ||
-          ids[type].has(row.id)
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          typeof item.id !== "string" ||
+          !item.id ||
+          ids[type].has(item.id)
         ) {
           throw Error(`IDs inválidos em ${type}.`);
         }
 
-        ids[type].add(row.id);
+        ids[type].add(item.id);
       }
     }
 
-    for (const c of value.contracts) {
-      if (!ids.suppliers.has(c.supplier)) {
+    for (const item of data.contracts) {
+      if (!ids.suppliers.has(item.supplier)) {
         throw Error("Contrato sem fornecedor válido.");
       }
     }
 
     for (const type of ["payments", "pendencias"]) {
-      for (const p of value[type]) {
-        if (!ids.contracts.has(p.contractId)) {
-          throw Error(
-            `${type} contém contrato inexistente.`
-          );
+      for (const item of data[type]) {
+        if (!ids.contracts.has(item.contractId)) {
+          throw Error(`Vínculo inválido em ${type}.`);
         }
       }
     }
@@ -1525,138 +1402,111 @@
     if (!file) return;
 
     if (file.size > 12 * 1024 * 1024) {
-      toast("O backup excede 12 MB.");
+      toast("Backup excede o limite de 12 MB.");
       return;
     }
 
     try {
-      const data = JSON.parse(
-        await file.text()
-      );
+      const parsed = JSON.parse(await file.text());
 
-      validateBackup(data);
+      validateBackup(parsed);
 
       if (
         !confirm(
-          "Substituir todos os registros atuais deste navegador pelo backup selecionado?"
+          "Substituir todos os registros atuais pelo backup selecionado?"
         )
-      ) {
-        return;
-      }
+      ) return;
 
       storageLocked = false;
 
-      if (persist(data)) {
-        toast("Backup restaurado com sucesso.");
+      if (saveDB(parsed)) {
+        toast("Backup restaurado.");
       }
 
-    } catch (err) {
-      console.error(err);
-      toast(`Falha na restauração: ${err.message}`);
+    } catch (error) {
+      console.error(error);
+      toast(`Erro no backup: ${error.message}`);
     }
   }
 
-  // =========================================
-  // INTERPRETADOR CSV
-  // =========================================
+  // ========================================
+  // IMPORTAÇÃO CSV: INTERPRETADOR
+  // ========================================
 
   function parseCSV(text) {
     const input = text.replace(/^\uFEFF/, "");
+    const headerLine = input.split(/\r?\n/, 1)[0];
 
-    const firstLine = input.split(
-      /\r?\n/,
-      1
-    )[0];
-
-    const countOutsideQuotes = sep => {
+    function separatorCount(separator) {
       let count = 0;
       let quoted = false;
 
-      for (let i = 0; i < firstLine.length; i++) {
-        if (firstLine[i] === '"') {
-          if (
-            quoted &&
-            firstLine[i + 1] === '"'
-          ) {
+      for (let i = 0; i < headerLine.length; i++) {
+        const ch = headerLine[i];
+
+        if (ch === '"') {
+          if (quoted && headerLine[i + 1] === '"') {
             i++;
           } else {
             quoted = !quoted;
           }
 
-        } else if (
-          !quoted &&
-          firstLine[i] === sep
-        ) {
+        } else if (!quoted && ch === separator) {
           count++;
         }
       }
 
       return count;
-    };
-
-    const delimiter = [
-      ";", "\t", ","
-    ].sort(
-      (a, b) =>
-        countOutsideQuotes(b) -
-        countOutsideQuotes(a)
-    )[0];
-
-    if (!countOutsideQuotes(delimiter)) {
-      throw Error(
-        "Cabeçalho sem separador (; , ou tabulação)."
-      );
     }
 
-    const grid = [];
+    const delimiter = [";", "\t", ","].sort(
+      (a, b) => separatorCount(b) - separatorCount(a)
+    )[0];
+
+    if (!separatorCount(delimiter)) {
+      throw Error("Não foi encontrado um separador de colunas.");
+    }
+
+    const matrix = [];
     let row = [];
     let cell = "";
     let quoted = false;
 
-    const finish = () => {
+    function completeRow() {
       row.push(cell);
 
-      if (row.some(x => x.trim())) {
-        grid.push(row);
+      if (row.some(value => value.trim())) {
+        matrix.push(row);
       }
 
       row = [];
       cell = "";
-    };
+    }
 
     for (let i = 0; i < input.length; i++) {
       const ch = input[i];
 
       if (ch === '"') {
-        if (
-          quoted &&
-          input[i + 1] === '"'
-        ) {
+        if (quoted && input[i + 1] === '"') {
           cell += '"';
           i++;
         } else {
           quoted = !quoted;
         }
 
-      } else if (
-        ch === delimiter &&
-        !quoted
-      ) {
+      } else if (ch === delimiter && !quoted) {
         row.push(cell);
         cell = "";
 
       } else if (
-        (ch === "\n" || ch === "\r") &&
+        (ch === "\r" || ch === "\n") &&
         !quoted
       ) {
-        if (
-          ch === "\r" &&
-          input[i + 1] === "\n"
-        ) {
+        if (ch === "\r" && input[i + 1] === "\n") {
           i++;
         }
 
-        finish();
+        completeRow();
 
       } else {
         cell += ch;
@@ -1664,42 +1514,37 @@
     }
 
     if (quoted) {
-      throw Error("Arquivo com aspas não fechadas.");
+      throw Error("Há aspas não fechadas no CSV.");
     }
 
-    finish();
+    completeRow();
 
-    if (grid.length < 2) {
-      throw Error(
-        "O arquivo não contém linhas de dados."
-      );
+    if (matrix.length < 2) {
+      throw Error("Arquivo sem linhas de dados.");
     }
 
-    const headers = grid.shift().map(
-      x => x.trim()
+    const headers = matrix.shift().map(
+      value => value.trim()
     );
 
     if (
-      headers.some(h => !h) ||
-      new Set(headers.map(canonical)).size !==
-        headers.length
+      headers.some(value => !value) ||
+      new Set(headers.map(canon)).size !== headers.length
     ) {
-      throw Error(
-        "Cabeçalhos vazios ou duplicados."
-      );
+      throw Error("Cabeçalhos vazios ou duplicados.");
     }
 
-    const rows = grid.map((cells, i) => {
+    const rows = matrix.map((cells, index) => {
       if (cells.length > headers.length) {
         throw Error(
-          `Linha ${i + 2}: número de colunas acima do cabeçalho.`
+          `Linha ${index + 2}: colunas acima do cabeçalho.`
         );
       }
 
       return Object.fromEntries(
-        headers.map((head, j) => [
-          head,
-          (cells[j] ?? "").trim()
+        headers.map((header, i) => [
+          header,
+          (cells[i] ?? "").trim()
         ])
       );
     });
@@ -1707,9 +1552,9 @@
     return { headers, rows };
   }
 
-  // =========================================
-  // NOMES DE COLUNAS CSV
-  // =========================================
+  // ========================================
+  // COMPATIBILIDADE COM CABEÇALHOS DO EXCEL
+  // ========================================
 
   const aliases = {
     razaosocial: "nome",
@@ -1717,187 +1562,159 @@
     nomeempresa: "empresa",
     favorecido: "empresa",
     fornecedor: "empresa",
-
     cnpjempresa: "cnpj",
     cnpjfornecedor: "cnpj",
-
     numerocontrato: "numero",
     numerodocontrato: "numero",
     contrato: "numero",
-
     numeroprocesso: "processo",
     numerodoprocesso: "processo",
     processosei: "processo",
     processocontratual: "processo",
-
     inicio: "vigenciaInicial",
     datainicio: "vigenciaInicial",
     fim: "vigenciaFinal",
     datafim: "vigenciaFinal",
-
     valorliquido: "valor",
     valorpago: "valor",
     valordopagamento: "valor",
     datapagamento: "data",
-
     mes: "competencia",
     mescompetencia: "competencia",
     mesdereferencia: "competencia",
-
     situacao: "status",
     numeronf: "notaFiscal",
     notafiscal: "notaFiscal",
     numeroempenho: "empenho",
-
     supplierid: "supplier",
     contractid: "contractId"
   };
 
-  const allFields = [
+  const knownFields = [
     ...new Set(Object.values(columns).flat())
   ];
 
   function normalizeImport(raw) {
     const out = {};
 
-    for (const [name, val] of Object.entries(raw)) {
-      const key = canonical(name);
+    for (const [header, value] of Object.entries(raw)) {
+      const key = canon(header);
 
       const destination =
         aliases[key] ||
-        allFields.find(k =>
-          canonical(k) === key
-        );
+        knownFields.find(field => canon(field) === key);
 
       if (!destination) continue;
 
-      if (
-        Object.prototype.hasOwnProperty.call(
-          out,
-          destination
-        )
-      ) {
+      if (Object.prototype.hasOwnProperty.call(out, destination)) {
         throw Error(
-          `Colunas correspondentes duplicadas: ${destination}.`
+          `Colunas repetidas: ${destination}.`
         );
       }
 
-      out[destination] = val;
+      out[destination] = value;
     }
 
     return out;
   }
 
-  // =========================================
-  // VALORES E DATAS DE CSV
-  // =========================================
+  // ========================================
+  // NÚMEROS E DATAS BRASILEIRAS
+  // ========================================
 
-  function parseAmount(input) {
-    const original = String(input ?? "").trim();
-
-    if (!original) return null;
-
-    let s = original
+  function parseAmount(value) {
+    let text = String(value ?? "")
       .replace(/R\$/gi, "")
       .replace(/\s/g, "");
 
-    if (s.startsWith("'")) {
-      s = s.slice(1);
+    if (!text) return null;
+
+    if (text.startsWith("'")) {
+      text = text.slice(1);
     }
 
-    const comma = s.lastIndexOf(",");
-    const dot = s.lastIndexOf(".");
+    const comma = text.lastIndexOf(",");
+    const dot = text.lastIndexOf(".");
 
     if (comma > dot) {
-      s = s.replace(/\./g, "").replace(",", ".");
+      text = text.replace(/\./g, "").replace(",", ".");
 
-    } else if (
-      comma >= 0 &&
-      dot > comma
-    ) {
-      s = s.replace(/,/g, "");
+    } else if (comma !== -1 && dot > comma) {
+      text = text.replace(/,/g, "");
 
-    } else if (
-      /^\d{1,3}(\.\d{3})+$/.test(s)
-    ) {
-      s = s.replace(/\./g, "");
+    } else if (/^\d{1,3}(\.\d{3})+$/.test(text)) {
+      text = text.replace(/\./g, "");
     }
 
-    if (!/^\d+(?:\.\d+)?$/.test(s)) {
+    if (!/^\d+(?:\.\d+)?$/.test(text)) {
       return null;
     }
 
-    const n = Number(s);
+    const valueNumber = Number(text);
 
-    return Number.isFinite(n) && n >= 0
-      ? n
+    return Number.isFinite(valueNumber) && valueNumber >= 0
+      ? valueNumber
       : null;
   }
 
-  function parseDate(input, monthOnly = false) {
-    const raw = String(input ?? "").trim();
+  function parseDate(value, monthOnly = false) {
+    const raw = String(value ?? "").trim();
 
-    let y, m, d;
+    let year, month, day;
 
-    if (
-      /^\d{4}-\d{2}(?:-\d{2})?$/.test(raw)
-    ) {
-      [y, m, d] = raw.split("-").map(Number);
+    if (/^\d{4}-\d{2}(?:-\d{2})?$/.test(raw)) {
+      [year, month, day] = raw.split("-").map(Number);
 
-    } else if (
-      /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)
-    ) {
-      [d, m, y] = raw.split("/").map(Number);
+    } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
+      [day, month, year] = raw.split("/").map(Number);
 
     } else if (
       monthOnly &&
       /^\d{1,2}\/\d{4}$/.test(raw)
     ) {
-      [m, y] = raw.split("/").map(Number);
+      [month, year] = raw.split("/").map(Number);
 
     } else {
       return null;
     }
 
     if (
-      !Number.isInteger(y) ||
-      y < 1900 ||
-      y > 2100 ||
-      !Number.isInteger(m) ||
-      m < 1 ||
-      m > 12
+      !Number.isInteger(year) ||
+      year < 1900 ||
+      year > 2100 ||
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12
     ) {
       return null;
     }
 
-    const ym = `${y}-${String(m).padStart(2, "0")}`;
+    const ym = `${year}-${String(month).padStart(2, "0")}`;
 
     if (monthOnly) return ym;
 
-    const iso =
-      `${ym}-${String(d).padStart(2, "0")}`;
+    const fullDate =
+      `${ym}-${String(day).padStart(2, "0")}`;
 
-    return validISODate(iso) ? iso : null;
+    return validDate(fullDate) ? fullDate : null;
   }
 
-  // =========================================
-  // VÍNCULOS DA IMPORTAÇÃO
-  // =========================================
+  // ========================================
+  // IDENTIFICAR VÍNCULOS
+  // ========================================
 
-  function findSupplierImport(row, state) {
+  function findSupplier(row, state) {
     const cnpj = digits(row.cnpj);
 
     if (cnpj.length === 14) {
-      return state.suppliers.find(s =>
-        digits(s.cnpj) === cnpj
+      return state.suppliers.find(
+        item => digits(item.cnpj) === cnpj
       )?.id || null;
     }
 
     if (
       row.supplier &&
-      state.suppliers.some(
-        s => s.id === row.supplier
-      )
+      state.suppliers.some(item => item.id === row.supplier)
     ) {
       return row.supplier;
     }
@@ -1905,8 +1722,8 @@
     const name = row.empresa || row.nome;
 
     const matches = name
-      ? state.suppliers.filter(s =>
-          normalize(s.nome) === normalize(name)
+      ? state.suppliers.filter(
+          item => norm(item.nome) === norm(name)
         )
       : [];
 
@@ -1915,11 +1732,8 @@
       : null;
   }
 
-  function findContractImport(row, state) {
-    const supplierId = findSupplierImport(
-      row,
-      state
-    );
+  function findContract(row, state) {
+    const supplierId = findSupplier(row, state);
 
     if (row.cnpj && !supplierId) {
       return null;
@@ -1927,14 +1741,14 @@
 
     if (row.contractId) {
       const exact = state.contracts.find(
-        c => c.id === row.contractId
+        item => item.id === row.contractId
       );
 
       if (
         exact &&
         (!supplierId || exact.supplier === supplierId) &&
-        (!row.numero || row.numero === exact.numero) &&
-        (!row.processo || row.processo === exact.processo)
+        (!row.numero || exact.numero === row.numero) &&
+        (!row.processo || exact.processo === row.processo)
       ) {
         return exact.id;
       }
@@ -1946,10 +1760,10 @@
       return null;
     }
 
-    const matches = state.contracts.filter(c =>
-      (!row.numero || c.numero === row.numero) &&
-      (!row.processo || c.processo === row.processo) &&
-      (!supplierId || c.supplier === supplierId)
+    const matches = state.contracts.filter(item =>
+      (!row.numero || item.numero === row.numero) &&
+      (!row.processo || item.processo === row.processo) &&
+      (!supplierId || item.supplier === supplierId)
     );
 
     return matches.length === 1
@@ -1957,62 +1771,42 @@
       : null;
   }
 
-  // =========================================
-  // PREPARAR IMPORTAÇÃO
-  // =========================================
+  // ========================================
+  // VALIDAR E PREPARAR IMPORTAÇÃO
+  // ========================================
 
-  function prepareImport(type, rows, existingDB) {
-    const next = clone(existingDB);
+  function prepareImport(type, rows, currentDB) {
+    const next = clone(currentDB);
 
-    const report = {
+    const result = {
       added: 0,
       updated: 0,
       rejected: 0,
       errors: []
     };
 
-    const fail = (line, reason) => {
-      report.rejected++;
-
-      if (report.errors.length < 25) {
-        report.errors.push(
-          `Linha ${line}: ${reason}`
-        );
-      }
-    };
-
-    rows.forEach((raw, i) => {
-      const line = i + 2;
-
+    rows.forEach((raw, index) => {
       try {
-        const r = normalizeImport(raw);
-
-        let current = null;
+        const row = normalizeImport(raw);
+        let existing = null;
         let item;
 
         // FORNECEDORES
         if (type === "suppliers") {
-          const name =
-            (r.nome || r.empresa || "").trim();
+          const name = (row.nome || row.empresa || "").trim();
+          const cnpj = digits(row.cnpj);
 
-          const cnpj = digits(r.cnpj);
-
-          if (
-            !name ||
-            cnpj.length !== 14
-          ) {
-            throw Error(
-              "Razão social ou CNPJ inválido."
-            );
+          if (!name || cnpj.length !== 14) {
+            throw Error("Razão social ou CNPJ inválido.");
           }
 
-          current = next.suppliers.find(s =>
-            digits(s.cnpj) === cnpj
+          existing = next.suppliers.find(
+            s => digits(s.cnpj) === cnpj
           );
 
           item = {
-            ...(current || {}),
-            id: current?.id || uuid(),
+            ...(existing || {}),
+            id: existing?.id || uuid(),
             nome: name,
             cnpj: cnpj.replace(
               /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
@@ -2021,411 +1815,328 @@
           };
 
           for (const field of [
-            "telefone",
-            "email",
-            "observacoes"
+            "telefone", "email", "observacoes"
           ]) {
-            if (Object.hasOwn(r, field)) {
-              item[field] = r[field];
+            if (Object.hasOwn(row, field)) {
+              item[field] = row[field];
             }
           }
 
         // CONTRATOS
         } else if (type === "contracts") {
-          const sid = findSupplierImport(r, next);
+          const supplierId = findSupplier(row, next);
 
-          if (!sid) {
-            throw Error(
-              "Fornecedor não encontrado. Importe fornecedores primeiro."
-            );
+          if (!supplierId) {
+            throw Error("Fornecedor não encontrado.");
           }
 
-          if (!r.processo) {
-            throw Error(
-              "Processo contratual obrigatório."
-            );
+          if (!row.processo) {
+            throw Error("Processo contratual obrigatório.");
           }
 
-          const initial = parseDate(
-            r.vigenciaInicial
-          );
+          const start = parseDate(row.vigenciaInicial);
+          const finish = parseDate(row.vigenciaFinal);
 
-          const final = parseDate(
-            r.vigenciaFinal
-          );
-
-          if (
-            !initial ||
-            !final ||
-            final < initial
-          ) {
-            throw Error(
-              "Vigência inicial/final inválida."
-            );
+          if (!start || !finish || finish < start) {
+            throw Error("Vigência contratual inválida.");
           }
 
-          current =
-            (
-              r.id &&
-              next.contracts.find(c => c.id === r.id)
-            ) ||
+          existing =
+            (row.id && next.contracts.find(
+              c => c.id === row.id
+            )) ||
             next.contracts.find(c =>
-              c.supplier === sid &&
-              c.processo === r.processo &&
-              (c.numero || "") === (r.numero || "")
+              c.supplier === supplierId &&
+              c.processo === row.processo &&
+              (c.numero || "") === (row.numero || "")
             );
 
-          if (
-            current &&
-            current.supplier !== sid
-          ) {
-            throw Error(
-              "ID contratual vinculado a outro fornecedor."
-            );
+          if (existing && existing.supplier !== supplierId) {
+            throw Error("Contrato pertence a outro fornecedor.");
           }
 
           item = {
-            ...(current || {}),
-            id: current?.id || uuid(),
-            supplier: sid,
-            numero: r.numero || "",
-            processo: r.processo,
-            vigenciaInicial: initial,
-            vigenciaFinal: final
+            ...(existing || {}),
+            id: existing?.id || uuid(),
+            supplier: supplierId,
+            numero: row.numero || "",
+            processo: row.processo,
+            vigenciaInicial: start,
+            vigenciaFinal: finish
           };
 
           for (const field of contractFields) {
             if (
               [
-                "supplier",
-                "numero",
-                "processo",
-                "vigenciaInicial",
-                "vigenciaFinal"
+                "supplier", "numero", "processo",
+                "vigenciaInicial", "vigenciaFinal"
               ].includes(field) ||
-              !Object.hasOwn(r, field)
-            ) {
-              continue;
-            }
+              !Object.hasOwn(row, field)
+            ) continue;
 
-            if (moneyKeys.includes(field)) {
-              if (r[field] === "") {
+            if (moneyFields.includes(field)) {
+              if (row[field] === "") {
                 item[field] = "";
                 continue;
               }
 
-              const n = parseAmount(
-                r[field]
-              );
+              const value = parseAmount(row[field]);
 
-              if (n === null) {
-                throw Error(
-                  `Valor inválido: ${field}.`
-                );
+              if (value === null) {
+                throw Error(`Valor inválido: ${field}.`);
               }
 
-              item[field] = String(n);
+              item[field] = String(value);
 
-            } else if (
-              integerKeys.includes(field)
-            ) {
-              if (r[field] === "") {
+            } else if (integerFields.includes(field)) {
+              if (row[field] === "") {
                 item[field] = "";
                 continue;
               }
 
-              const n = Number(r[field]);
+              const value = Number(row[field]);
 
               if (
-                !Number.isInteger(n) ||
-                n < 0
+                !Number.isInteger(value) ||
+                value < 0
               ) {
-                throw Error(
-                  `Inteiro inválido: ${field}.`
-                );
+                throw Error(`Inteiro inválido: ${field}.`);
               }
 
-              item[field] = String(n);
+              item[field] = String(value);
 
             } else {
-              item[field] = r[field];
+              item[field] = row[field];
             }
           }
 
         // PAGAMENTOS E PENDÊNCIAS
         } else {
-          const cid = findContractImport(
-            r,
-            next
-          );
+          const contractId = findContract(row, next);
 
-          if (!cid) {
+          if (!contractId) {
             throw Error(
-              "Contrato não encontrado de forma única ou vínculo incompatível."
+              "Contrato não identificado de forma única."
             );
           }
 
-          const value = parseAmount(
-            r.valor
-          );
+          const value = parseAmount(row.valor);
 
           if (
             value === null ||
-            (
-              type === "payments" &&
-              value <= 0
-            )
+            (type === "payments" && value <= 0)
           ) {
-            throw Error(
-              "Valor financeiro inválido."
-            );
+            throw Error("Valor financeiro inválido.");
           }
 
-          const dateKey =
-            type === "payments"
-              ? "data"
-              : "competencia";
+          const dateKey = type === "payments"
+            ? "data"
+            : "competencia";
 
-          const descriptionKey =
-            type === "payments"
-              ? "descricao"
-              : "referencia";
+          const descriptorKey = type === "payments"
+            ? "descricao"
+            : "referencia";
 
           const date = parseDate(
-            r[dateKey],
+            row[dateKey],
             type === "pendencias"
           );
 
           if (!date) {
-            throw Error(
-              `Data/competência inválida: ${dateKey}.`
-            );
+            throw Error("Data ou competência inválida.");
           }
 
-          const descriptor =
-            r[descriptionKey] || "";
+          const descriptor = row[descriptorKey] || "";
 
-          current =
-            (
-              r.id &&
-              next[type].find(p => p.id === r.id)
-            ) ||
+          existing =
+            (row.id && next[type].find(
+              p => p.id === row.id
+            )) ||
             next[type].find(p =>
-              p.contractId === cid &&
+              p.contractId === contractId &&
               p[dateKey] === date &&
-              (p[descriptionKey] || "") === descriptor &&
-              num(p.valor) === value
+              (p[descriptorKey] || "") === descriptor &&
+              number(p.valor) === value
             );
 
           if (
-            current &&
-            current.contractId !== cid
+            existing &&
+            existing.contractId !== contractId
           ) {
-            throw Error(
-              "ID já vinculado a outro contrato."
-            );
+            throw Error("ID vinculado a outro contrato.");
           }
 
           item = {
-            ...(current || {}),
-            id: current?.id || uuid(),
-            contractId: cid,
+            ...(existing || {}),
+            id: existing?.id || uuid(),
+            contractId,
             [dateKey]: date,
-            [descriptionKey]: descriptor,
+            [descriptorKey]: descriptor,
             valor: String(value)
           };
 
           if (type === "payments") {
-            if (
-              Object.hasOwn(r, "competencia")
-            ) {
+            if (Object.hasOwn(row, "competencia")) {
               if (
-                r.competencia &&
-                !parseDate(r.competencia, true)
+                row.competencia &&
+                !parseDate(row.competencia, true)
               ) {
-                throw Error(
-                  "Competência do pagamento inválida."
-                );
+                throw Error("Competência inválida.");
               }
 
-              item.competencia = r.competencia
-                ? parseDate(r.competencia, true)
+              item.competencia = row.competencia
+                ? parseDate(row.competencia, true)
                 : "";
             }
 
             for (const key of [
-              "notaFiscal",
-              "empenho",
-              "processoPagamento"
+              "notaFiscal", "empenho", "processoPagamento"
             ]) {
-              if (Object.hasOwn(r, key)) {
-                item[key] = r[key];
+              if (Object.hasOwn(row, key)) {
+                item[key] = row[key];
               }
             }
 
           } else {
             item.status =
-              canonical(r.status || "aberto") === "concluido"
+              canon(row.status || "aberto") === "concluido"
                 ? "concluido"
                 : "aberto";
 
-            if (r.vencimento) {
-              const expiration = parseDate(
-                r.vencimento
-              );
+            if (row.vencimento) {
+              const expiration = parseDate(row.vencimento);
 
               if (!expiration) {
-                throw Error(
-                  "Vencimento inválido."
-                );
+                throw Error("Vencimento inválido.");
               }
 
               item.vencimento = expiration;
 
-            } else if (
-              Object.hasOwn(r, "vencimento")
-            ) {
+            } else if (Object.hasOwn(row, "vencimento")) {
               item.vencimento = "";
             }
 
-            if (
-              Object.hasOwn(r, "observacoes")
-            ) {
-              item.observacoes = r.observacoes;
+            if (Object.hasOwn(row, "observacoes")) {
+              item.observacoes = row.observacoes;
             }
           }
         }
 
-        validateRecord(
-          type,
-          item,
-          next,
-          item.id
+        validateRecord(type, item, next, item.id);
+
+        const position = next[type].findIndex(
+          row => row.id === item.id
         );
 
-        const idx = next[type].findIndex(
-          x => x.id === item.id
-        );
-
-        if (idx < 0) {
+        if (position < 0) {
           next[type].push(item);
-          report.added++;
+          result.added++;
         } else {
-          next[type][idx] = item;
-          report.updated++;
+          next[type][position] = item;
+          result.updated++;
         }
 
-      } catch (err) {
-        fail(line, err.message);
+      } catch (error) {
+        result.rejected++;
+
+        if (result.errors.length < 25) {
+          result.errors.push(
+            `Linha ${index + 2}: ${error.message}`
+          );
+        }
       }
     });
 
-    return { next, report };
+    return { next, result };
   }
 
-  // =========================================
-  // LEITURA DE CSV E TXT
-  // =========================================
+  // ========================================
+  // LER ARQUIVOS CSV EM UTF-8/UTF-16/ANSI
+  // ========================================
 
-  async function decodeText(file) {
-    const bytes = await file.arrayBuffer();
-    const view = new Uint8Array(bytes);
+  function decodeBuffer(buffer) {
+    const bytes = new Uint8Array(buffer);
 
-    if (
-      view[0] === 0xFF &&
-      view[1] === 0xFE
-    ) {
-      return new TextDecoder("utf-16le").decode(bytes);
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return new TextDecoder("utf-16le").decode(buffer);
     }
 
-    if (
-      view[0] === 0xFE &&
-      view[1] === 0xFF
-    ) {
-      return new TextDecoder("utf-16be").decode(bytes);
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      return new TextDecoder("utf-16be").decode(buffer);
     }
 
     try {
       return new TextDecoder(
         "utf-8",
         { fatal: true }
-      ).decode(bytes);
+      ).decode(buffer);
 
     } catch {
-      return new TextDecoder(
-        "windows-1252"
-      ).decode(bytes);
+      return new TextDecoder("windows-1252").decode(buffer);
     }
   }
 
-  function cancelImport() {
-    staging = null;
+  function resetImport() {
+    staged = null;
     $("importPreview").hidden = true;
     $("confirmImport").disabled = true;
   }
 
   async function previewImport(file) {
-    cancelImport();
+    resetImport();
 
     if (!file) return;
 
     if (!/\.(csv|txt)$/i.test(file.name)) {
-      toast(
-        "Selecione um arquivo CSV ou TXT tabular."
-      );
+      toast("Selecione um arquivo CSV ou TXT.");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast(
-        "Tamanho máximo: 5 MB por arquivo."
-      );
+      toast("Arquivo excede 5 MB.");
       return;
     }
 
     try {
-      const parsed = parseCSV(
-        await decodeText(file)
-      );
+      const text = decodeBuffer(await file.arrayBuffer());
+      const parsed = parseCSV(text);
 
       if (parsed.rows.length > 10000) {
-        throw Error(
-          "Máximo de 10.000 linhas por arquivo."
-        );
+        throw Error("Máximo de 10.000 registros.");
       }
 
-      const kind = $("importType").value;
+      const type = $("importType").value;
 
-      const { report } = prepareImport(
-        kind,
+      const { result } = prepareImport(
+        type,
         parsed.rows,
         db
       );
 
-      staging = {
-        kind,
+      staged = {
+        type,
         rows: parsed.rows,
         filename: file.name
       };
 
       $("importSummary").innerHTML = [
-        ["Novos", report.added],
-        ["Atualizações", report.updated],
-        ["Rejeitados", report.rejected]
-      ].map(([label, n]) => `
-        <div class="summary-item">
+        ["Novos", result.added],
+        ["Atualizações", result.updated],
+        ["Rejeitados", result.rejected]
+      ].map(([label, value]) => `
+        <article class="summary-item">
           <small>${label}</small>
-          <strong>${n}</strong>
-        </div>
+          <strong>${value}</strong>
+        </article>
       `).join("");
 
       $("importErrors").textContent =
-        report.errors.join("\n") +
+        result.errors.join("\n") +
         (
-          report.rejected > report.errors.length
+          result.rejected > result.errors.length
             ? `\n... e mais ${
-                report.rejected - report.errors.length
-              } linha(s) rejeitada(s).`
+                result.rejected - result.errors.length
+              } linhas rejeitadas.`
             : ""
         );
 
@@ -2434,17 +2145,17 @@
       $("previewTable").innerHTML = `
         <thead>
           <tr>
-            ${headers.map(
-              h => `<th>${escapeHTML(h)}</th>`
+            ${headers.map(h =>
+              `<th>${esc(h)}</th>`
             ).join("")}
           </tr>
         </thead>
 
         <tbody>
-          ${parsed.rows.slice(0, 8).map(r => `
+          ${parsed.rows.slice(0, 8).map(row => `
             <tr>
-              ${headers.map(h =>
-                `<td>${escapeHTML(r[h])}</td>`
+              ${headers.map(header =>
+                `<td>${esc(row[header])}</td>`
               ).join("")}
             </tr>
           `).join("")}
@@ -2454,221 +2165,174 @@
       $("importPreview").hidden = false;
 
       $("confirmImport").disabled =
-        report.added + report.updated === 0;
+        result.added + result.updated === 0;
 
       $("importMessage").textContent =
-        `${file.name}: ${parsed.rows.length} ` +
-        `linha(s) analisada(s). Confira os totais ` +
-        `e os erros antes de confirmar.`;
+        `${file.name}: ${parsed.rows.length} linha(s) ` +
+        "analisada(s). Confira antes de confirmar.";
 
-    } catch (err) {
-      console.error(err);
-
+    } catch (error) {
+      console.error(error);
       $("importMessage").textContent =
-        `Erro: ${err.message}`;
+        `Erro: ${error.message}`;
 
-      toast(
-        "Não foi possível preparar o CSV."
-      );
+      toast("Não foi possível preparar a importação.");
     }
   }
 
   function confirmImport() {
-    if (!staging) return;
-
-    if (storageLocked) {
-      toast(
-        "Armazenamento bloqueado. Restaure um backup primeiro."
-      );
-      return;
-    }
+    if (!staged || storageLocked) return;
 
     try {
-      const { next, report } = prepareImport(
-        staging.kind,
-        staging.rows,
+      const { next, result } = prepareImport(
+        staged.type,
+        staged.rows,
         db
       );
 
-      if (!report.added && !report.updated) {
-        toast(
-          "Nenhum registro válido para importar."
-        );
+      if (!result.added && !result.updated) {
+        toast("Nenhum registro válido.");
         return;
       }
 
-      const message =
-        `Importar ${staging.filename}?\n\n` +
-        `Incluir: ${report.added}\n` +
-        `Atualizar: ${report.updated}\n` +
-        `Ignorar: ${report.rejected}\n\n` +
-        `Faça backup antes de continuar.`;
+      if (
+        !confirm(
+          `Importar ${staged.filename}?\n\n` +
+          `Novos: ${result.added}\n` +
+          `Atualizados: ${result.updated}\n` +
+          `Rejeitados: ${result.rejected}\n\n` +
+          "Confirme para gravar no navegador."
+        )
+      ) return;
 
-      if (!confirm(message)) return;
-
-      if (persist(next)) {
-        cancelImport();
+      if (saveDB(next)) {
+        resetImport();
 
         $("importMessage").textContent =
-          `Importação concluída: ` +
-          `${report.added} incluído(s), ` +
-          `${report.updated} atualizado(s) e ` +
-          `${report.rejected} rejeitado(s).`;
+          `Importação concluída: ${result.added} novo(s), ` +
+          `${result.updated} atualizado(s) e ` +
+          `${result.rejected} rejeitado(s).`;
 
-        toast("Importação concluída.");
+        toast("CSV importado.");
       }
 
-    } catch (err) {
-      console.error(err);
-      toast(`Falha na importação: ${err.message}`);
+    } catch (error) {
+      console.error(error);
+      toast(`Falha na importação: ${error.message}`);
     }
   }
 
-  // =========================================
-  // EVENTOS E INICIALIZAÇÃO
-  // =========================================
+  // ========================================
+  // EVENTOS DO SISTEMA
+  // ========================================
 
   function init() {
     db = readDB();
     renderAll();
 
-    // Formulários
-    $("supplierForm").addEventListener(
-      "submit",
-      e => submitRecord(e, "suppliers")
-    );
+    const forms = {
+      supplierForm: "suppliers",
+      contractForm: "contracts",
+      paymentForm: "payments",
+      pendingForm: "pendencias"
+    };
 
-    $("contractForm").addEventListener(
-      "submit",
-      e => submitRecord(e, "contracts")
-    );
+    for (const [id, type] of Object.entries(forms)) {
+      $(id).addEventListener(
+        "submit",
+        event => submitRecord(event, type)
+      );
+    }
 
-    $("paymentForm").addEventListener(
-      "submit",
-      e => submitRecord(e, "payments")
-    );
+    $("contractForm").addEventListener("input", updateCCT);
 
-    $("pendingForm").addEventListener(
-      "submit",
-      e => submitRecord(e, "pendencias")
-    );
+    const filters = {
+      searchSuppliers: renderSuppliers,
+      searchContracts: renderContracts,
+      filterContractStatus: renderContracts,
+      searchPayments: renderPayments,
+      filterPaymentMonth: renderPayments,
+      searchPending: renderPending,
+      filterPendingStatus: renderPending
+    };
 
-    $("contractForm").addEventListener(
-      "input",
-      updateCCT
-    );
+    for (const [id, handler] of Object.entries(filters)) {
+      $(id).addEventListener("input", handler);
+      $(id).addEventListener("change", handler);
+    }
 
-    // Filtros
-    $("searchSuppliers").addEventListener(
-      "input",
-      renderSuppliers
-    );
+    $("clearPaymentFilters").addEventListener("click", () => {
+      $("searchPayments").value = "";
+      $("filterPaymentMonth").value = "";
+      renderPayments();
+    });
 
-    $("searchContracts").addEventListener(
-      "input",
-      renderContracts
-    );
-
-    $("filterContractStatus").addEventListener(
-      "change",
-      renderContracts
-    );
-
-    $("searchPayments").addEventListener(
-      "input",
-      renderPayments
-    );
-
-    $("filterPaymentMonth").addEventListener(
-      "change",
-      renderPayments
-    );
-
-    $("clearPaymentFilters").addEventListener(
-      "click",
-      () => {
-        $("searchPayments").value = "";
-        $("filterPaymentMonth").value = "";
-        renderPayments();
-      }
-    );
-
-    $("searchPending").addEventListener(
-      "input",
-      renderPending
-    );
-
-    $("filterPendingStatus").addEventListener(
-      "change",
-      renderPending
-    );
-
-    // Botões gerais
-    document.addEventListener("click", e => {
-      const close = e.target.closest("[data-close]");
+    document.addEventListener("click", event => {
+      const close = event.target.closest("[data-close]");
 
       if (close) {
         $(close.dataset.close)?.close();
         return;
       }
 
-      const go = e.target.closest("[data-view]");
+      const nav = event.target.closest("[data-view]");
 
-      if (go) {
-        navigate(go.dataset.view);
+      if (nav) {
+        navigate(nav.dataset.view);
         return;
       }
 
-      const create = e.target.closest("[data-action]");
+      const create = event.target.closest("[data-action]");
 
       if (create) {
-        const map = {
+        const types = {
           "new-supplier": "suppliers",
           "new-contract": "contracts",
           "new-payment": "payments",
           "new-pending": "pendencias"
         };
 
-        if (map[create.dataset.action]) {
-          openForm(map[create.dataset.action]);
+        if (types[create.dataset.action]) {
+          openForm(types[create.dataset.action]);
         }
-
         return;
       }
 
-      const edit = e.target.closest("[data-edit]");
+      const edit = event.target.closest("[data-edit]");
 
       if (edit) {
         openForm(edit.dataset.edit, edit.dataset.id);
         return;
       }
 
-      const del = e.target.closest("[data-delete]");
+      const remove = event.target.closest("[data-delete]");
 
-      if (del) {
-        deleteRecord(del.dataset.delete, del.dataset.id);
+      if (remove) {
+        deleteRecord(
+          remove.dataset.delete,
+          remove.dataset.id
+        );
         return;
       }
 
-      const toggle = e.target.closest("[data-toggle]");
+      const toggle = event.target.closest("[data-toggle]");
 
       if (toggle) {
         togglePending(toggle.dataset.toggle);
         return;
       }
 
-      const exp = e.target.closest("[data-export]");
+      const exportButton = event.target.closest("[data-export]");
 
-      if (exp) {
-        exportCSV(exp.dataset.export);
+      if (exportButton) {
+        exportCSV(exportButton.dataset.export);
         return;
       }
 
-      const model = e.target.closest("[data-template]");
+      const template = event.target.closest("[data-template]");
 
-      if (model) {
-        exportTemplate(model.dataset.template);
-        return;
+      if (template) {
+        exportTemplate(template.dataset.template);
       }
     });
 
@@ -2680,36 +2344,21 @@
 
     $("csvFile").addEventListener(
       "change",
-      async e => {
-        await previewImport(
-          e.target.files?.[0]
-        );
-
-        e.target.value = "";
+      async event => {
+        await previewImport(event.target.files?.[0]);
+        event.target.value = "";
       }
     );
 
-    $("importType").addEventListener(
-      "change",
-      () => {
-        cancelImport();
+    $("importType").addEventListener("change", () => {
+      resetImport();
+      $("importMessage").textContent =
+        "Selecione um CSV correspondente ao cadastro.";
+    });
 
-        $("importMessage").textContent =
-          "Selecione um CSV correspondente a este tipo de registro.";
-      }
-    );
+    $("cancelImport").addEventListener("click", resetImport);
+    $("confirmImport").addEventListener("click", confirmImport);
 
-    $("cancelImport").addEventListener(
-      "click",
-      cancelImport
-    );
-
-    $("confirmImport").addEventListener(
-      "click",
-      confirmImport
-    );
-
-    // Arrastar arquivo para importar
     const drop = $("csvDropzone");
 
     drop.addEventListener(
@@ -2717,45 +2366,35 @@
       () => $("csvFile").click()
     );
 
-    drop.addEventListener(
-      "keydown",
-      e => {
-        if (
-          e.key === "Enter" ||
-          e.key === " "
-        ) {
-          e.preventDefault();
-          $("csvFile").click();
-        }
+    drop.addEventListener("keydown", event => {
+      if (
+        event.key === "Enter" ||
+        event.key === " "
+      ) {
+        event.preventDefault();
+        $("csvFile").click();
       }
-    );
+    });
 
-    drop.addEventListener(
-      "dragover",
-      e => {
-        e.preventDefault();
-        drop.classList.add("dragover");
-      }
-    );
+    drop.addEventListener("dragover", event => {
+      event.preventDefault();
+      drop.classList.add("dragover");
+    });
 
-    drop.addEventListener(
-      "dragleave",
-      () => drop.classList.remove("dragover")
-    );
+    drop.addEventListener("dragleave", () => {
+      drop.classList.remove("dragover");
+    });
 
-    drop.addEventListener(
-      "drop",
-      async e => {
-        e.preventDefault();
-        drop.classList.remove("dragover");
+    drop.addEventListener("drop", async event => {
+      event.preventDefault();
+      drop.classList.remove("dragover");
 
-        await previewImport(
-          e.dataTransfer?.files?.[0]
-        );
-      }
-    );
+      await previewImport(
+        event.dataTransfer?.files?.[0]
+      );
+    });
 
-    // Backup e restauração
+    // Backup
     $("backupButton").addEventListener(
       "click",
       exportBackup
@@ -2768,35 +2407,23 @@
 
     $("restoreFile").addEventListener(
       "change",
-      async e => {
-        await restoreBackup(
-          e.target.files?.[0]
-        );
-
-        e.target.value = "";
+      async event => {
+        await restoreBackup(event.target.files?.[0]);
+        event.target.value = "";
       }
     );
 
-    // Sincronizar abas do mesmo navegador
-    window.addEventListener(
-      "storage",
-      e => {
-        if (
-          e.key === STORE &&
-          !storageLocked
-        ) {
-          db = readDB();
-          renderAll();
-        }
+    window.addEventListener("storage", event => {
+      if (event.key === STORE && !storageLocked) {
+        db = readDB();
+        renderAll();
       }
-    );
+    });
 
     navigate("dashboard");
 
     if (storageLocked) {
-      toast(
-        "Não foi possível ler o armazenamento atual. Restaure um backup antes de editar."
-      );
+      toast("Armazenamento inválido. Verifique o backup.");
     }
   }
 
@@ -2809,5 +2436,680 @@
   } else {
     init();
   }
+})();
 
+/* ==========================================
+   CENTRAL DE DOCUMENTOS
+   Excel / CSV / TXT / DOCX / PDF
+   ========================================== */
+
+(() => {
+  const $ = id => document.getElementById(id);
+
+  const esc = value =>
+    String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[char]);
+
+  // Bibliotecas carregadas apenas quando necessário
+  const libraries = {
+    xlsx: {
+      url: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+      global: "XLSX"
+    },
+    docx: {
+      url: "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.9.1/mammoth.browser.min.js",
+      global: "mammoth"
+    },
+    pdf: {
+      url: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+      global: "pdfjsLib"
+    }
+  };
+
+  const PDF_WORKER =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const MAX_FILE = 12 * 1024 * 1024;
+  const MAX_ROWS = 10000;
+  const MAX_PAGES = 100;
+  const MAX_PREVIEW = 150000;
+
+  const loadingLibraries = new Map();
+
+  let documentState = null;
+  let requestId = 0;
+
+  function message(text) {
+    $("docsMessage").textContent = text;
+  }
+
+  // ========================================
+  // CARREGAMENTO DAS BIBLIOTECAS
+  // ========================================
+
+  function loadLibrary(name) {
+    const config = libraries[name];
+
+    if (window[config.global]) {
+      return Promise.resolve(window[config.global]);
+    }
+
+    if (loadingLibraries.has(name)) {
+      return loadingLibraries.get(name);
+    }
+
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+
+      script.src = config.url;
+      script.async = true;
+
+      script.onload = () => {
+        if (window[config.global]) {
+          resolve(window[config.global]);
+        } else {
+          reject(
+            Error(`Não foi possível iniciar o leitor ${name}.`)
+          );
+        }
+      };
+
+      script.onerror = () => {
+        reject(
+          Error(
+            `A biblioteca de ${name} não carregou. ` +
+            "Verifique sua conexão com a internet."
+          )
+        );
+      };
+
+      document.head.appendChild(script);
+    });
+
+    loadingLibraries.set(name, promise);
+
+    promise.catch(() => {
+      loadingLibraries.delete(name);
+    });
+
+    return promise;
+  }
+
+  // ========================================
+  // DECODIFICAR TEXTO
+  // ========================================
+
+  function decodeText(buffer) {
+    const bytes = new Uint8Array(buffer);
+
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return new TextDecoder("utf-16le").decode(buffer);
+    }
+
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      return new TextDecoder("utf-16be").decode(buffer);
+    }
+
+    try {
+      return new TextDecoder(
+        "utf-8",
+        { fatal: true }
+      ).decode(buffer);
+    } catch {
+      return new TextDecoder("windows-1252").decode(buffer);
+    }
+  }
+
+  function looksTabular(text) {
+    const lines = text
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter(line => line.trim())
+      .slice(0, 4);
+
+    if (lines.length < 2) return false;
+
+    return [";", "\t", ","].some(separator => {
+      const counts = lines.map(
+        line => line.split(separator).length
+      );
+
+      return counts.every(
+        count => count >= 2 && count === counts[0]
+      );
+    });
+  }
+
+  // ========================================
+  // LIMPAR
+  // ========================================
+
+  function clearDocument() {
+    requestId++;
+    documentState = null;
+
+    $("docsResult").hidden = true;
+    $("docsSpreadsheet").hidden = true;
+    $("docsTextResult").hidden = true;
+
+    $("docsTable").replaceChildren();
+    $("docsDetected").replaceChildren();
+
+    $("docsText").value = "";
+    $("docsFile").value = "";
+
+    message("Selecione um documento para iniciar a leitura.");
+  }
+
+  // ========================================
+  // DETECÇÃO DE INFORMAÇÕES
+  // ========================================
+
+  function detectInformation(text) {
+    const patterns = [
+      [
+        "CNPJ",
+        /\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g
+      ],
+      [
+        "Processos",
+        /\b\d{5}\.\d{6}\/\d{4}-\d{2}\b/g
+      ],
+      [
+        "Valores",
+        /R\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?/g
+      ],
+      [
+        "Datas",
+        /\b(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])\/\d{4}\b/g
+      ]
+    ];
+
+    const results = patterns
+      .map(([label, regex]) => ({
+        label,
+        values: [
+          ...new Set((text.match(regex) || []).slice(0, 30))
+        ].slice(0, 8)
+      }))
+      .filter(item => item.values.length);
+
+    $("docsDetected").innerHTML = results.length
+      ? results.map(item => `
+          <div class="docs-found-item">
+            <strong>${esc(item.label)}</strong>
+            <span>${esc(item.values.join(" · "))}</span>
+          </div>
+        `).join("")
+      : `<p class="muted">
+           Nenhuma informação reconhecida pelos padrões simples.
+           Revise o texto manualmente.
+         </p>`;
+  }
+
+  // ========================================
+  // MOSTRAR TEXTO
+  // ========================================
+
+  function showText(text, note) {
+    documentState = { kind: "text", text };
+
+    $("docsResult").hidden = false;
+    $("docsSpreadsheet").hidden = true;
+    $("docsTextResult").hidden = false;
+
+    $("docsText").value = text.slice(0, MAX_PREVIEW);
+
+    $("docsTextNote").textContent =
+      note +
+      (
+        text.length > MAX_PREVIEW
+          ? " A prévia foi limitada, mas a exportação inclui o texto completo."
+          : ""
+      );
+
+    detectInformation(text);
+
+    message(
+      "Texto extraído. Confira as informações antes de utilizá-las."
+    );
+  }
+
+  // ========================================
+  // MOSTRAR PLANILHAS
+  // ========================================
+
+  function renderSheet() {
+    if (documentState?.kind !== "sheet") return;
+
+    const name = $("docsSheetSelect").value;
+    const matrix = documentState.sheets[name] || [];
+
+    const previewRows = matrix.slice(0, 11);
+    const maxCols = Math.min(
+      20,
+      Math.max(0, ...previewRows.map(row => row.length))
+    );
+
+    $("docsSheetInfo").textContent =
+      `${name}: ${Math.max(0, matrix.length - 1)} linha(s). ` +
+      "Prévia das primeiras dez linhas.";
+
+    $("docsTable").innerHTML = matrix.length
+      ? `
+        <thead>
+          <tr>
+            ${Array.from(
+              { length: maxCols },
+              (_, index) =>
+                `<th>${esc(previewRows[0][index] ?? "")}</th>`
+            ).join("")}
+          </tr>
+        </thead>
+
+        <tbody>
+          ${previewRows.slice(1).map(row => `
+            <tr>
+              ${Array.from(
+                { length: maxCols },
+                (_, index) =>
+                  `<td>${esc(row[index] ?? "")}</td>`
+              ).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      `
+      : `<tbody><tr><td>Aba vazia.</td></tr></tbody>`;
+
+    $("docsToImporter").disabled = matrix.length < 2;
+  }
+
+  function showSheets(sheets) {
+    const names = Object.keys(sheets);
+
+    if (!names.length) {
+      throw Error("Nenhuma aba encontrada.");
+    }
+
+    documentState = { kind: "sheet", sheets };
+
+    $("docsSheetSelect").replaceChildren(
+      ...names.map(name => new Option(name, name))
+    );
+
+    $("docsResult").hidden = false;
+    $("docsSpreadsheet").hidden = false;
+    $("docsTextResult").hidden = true;
+
+    renderSheet();
+
+    message("Planilha lida. Escolha a aba para revisar os registros.");
+  }
+
+  // ========================================
+  // EXCEL E CSV
+  // ========================================
+
+  async function readSpreadsheet(buffer, textMode = false) {
+    const XLSX = await loadLibrary("xlsx");
+
+    const workbook = XLSX.read(
+      textMode ? decodeText(buffer) : buffer,
+      textMode
+        ? { type: "string" }
+        : { type: "array", cellDates: false }
+    );
+
+    const sheets = {};
+
+    for (const name of workbook.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(
+        workbook.Sheets[name],
+        {
+          header: 1,
+          defval: "",
+          blankrows: false,
+          raw: false,
+          dateNF: "dd/mm/yyyy"
+        }
+      );
+
+      if (rows.length > MAX_ROWS + 1) {
+        throw Error(
+          `A aba ${name} tem mais de ${MAX_ROWS} linhas.`
+        );
+      }
+
+      if (rows.some(row => row.length > 80)) {
+        throw Error("A planilha tem mais de 80 colunas.");
+      }
+
+      sheets[name] = rows.map(row =>
+        row.map(cell => String(cell ?? ""))
+      );
+    }
+
+    showSheets(sheets);
+  }
+
+  // ========================================
+  // WORD DOCX
+  // ========================================
+
+  async function readDOCX(buffer) {
+    const mammoth = await loadLibrary("docx");
+
+    const result = await mammoth.extractRawText({
+      arrayBuffer: buffer
+    });
+
+    showText(
+      result.value || "",
+      "Texto extraído do Word. Tabelas e formatação podem perder a estrutura."
+    );
+  }
+
+  // ========================================
+  // PDF
+  // ========================================
+
+  async function readPDF(buffer) {
+    const pdfjs = await loadLibrary("pdf");
+
+    pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER;
+
+    const loading = pdfjs.getDocument({
+      data: new Uint8Array(buffer)
+    });
+
+    try {
+      const documentPDF = await loading.promise;
+      const max = Math.min(documentPDF.numPages, MAX_PAGES);
+      const pages = [];
+
+      for (let i = 1; i <= max; i++) {
+        const page = await documentPDF.getPage(i);
+        const content = await page.getTextContent();
+
+        pages.push(
+          `PÁGINA ${i}\n` +
+          content.items
+            .map(item => item.str || "")
+            .join(" ")
+        );
+
+        page.cleanup();
+      }
+
+      const text = pages.join("\n\n");
+
+      showText(
+        text,
+        text.trim()
+          ? `PDF com ${documentPDF.numPages} página(s). ` +
+            "A extração preserva o texto, não necessariamente a formatação."
+          : "PDF sem texto extraível. Pode ser necessário OCR."
+      );
+
+    } finally {
+      await loading.destroy().catch(() => {});
+    }
+  }
+
+  // ========================================
+  // SELECIONAR DOCUMENTO
+  // ========================================
+
+  async function readDocument(file) {
+    if (!file) return;
+
+    const extension =
+      file.name.split(".").pop().toLowerCase();
+
+    if (
+      !["xlsx", "xls", "csv", "txt", "docx", "pdf"]
+        .includes(extension)
+    ) {
+      message("Formato não suportado.");
+      return;
+    }
+
+    if (file.size > MAX_FILE) {
+      message("Arquivo maior que 12 MB.");
+      return;
+    }
+
+    const ticket = ++requestId;
+
+    documentState = null;
+    $("docsResult").hidden = true;
+
+    message(`Lendo ${file.name}...`);
+
+    try {
+      const buffer = await file.arrayBuffer();
+
+      if (ticket !== requestId) return;
+
+      $("docsFilename").textContent = file.name;
+
+      $("docsMetadata").textContent =
+        `${(file.size / 1024).toFixed(1)} KB · ` +
+        extension.toUpperCase();
+
+      if (["xlsx", "xls", "csv"].includes(extension)) {
+        await readSpreadsheet(
+          buffer,
+          extension === "csv"
+        );
+
+      } else if (extension === "txt") {
+        const text = decodeText(buffer);
+
+        if (looksTabular(text)) {
+          await readSpreadsheet(buffer, true);
+        } else {
+          showText(text, "Arquivo de texto simples.");
+        }
+
+      } else if (extension === "docx") {
+        await readDOCX(buffer);
+
+      } else if (extension === "pdf") {
+        await readPDF(buffer);
+      }
+
+    } catch (error) {
+      console.error(error);
+
+      if (ticket === requestId) {
+        $("docsResult").hidden = true;
+        message(`Falha na leitura: ${error.message}`);
+      }
+    }
+  }
+
+  // ========================================
+  // ENVIAR PLANILHA AO IMPORTADOR CSV
+  // ========================================
+
+  function convertSheetToCSV(rows) {
+    return "\uFEFF" + rows.map(row =>
+      row.map(cell =>
+        `"${String(cell ?? "").replace(/"/g, '""')}"`
+      ).join(";")
+    ).join("\r\n");
+  }
+
+  function sendToImporter() {
+    if (documentState?.kind !== "sheet") return;
+
+    const rows = documentState.sheets[
+      $("docsSheetSelect").value
+    ];
+
+    if (!rows || rows.length < 2) return;
+
+    if (typeof DataTransfer !== "function") {
+      message(
+        "Transferência não suportada. Salve a tabela como CSV."
+      );
+      return;
+    }
+
+    const csv = convertSheetToCSV(rows);
+
+    const file = new File(
+      [csv],
+      "documento-para-importacao.csv",
+      { type: "text/csv;charset=utf-8" }
+    );
+
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+
+    $("importType").value = $("docsTarget").value;
+
+    const input = $("csvFile");
+    input.files = transfer.files;
+
+    document.querySelector(
+      '[data-view="files"]'
+    )?.click();
+
+    input.dispatchEvent(
+      new Event("change", { bubbles: true })
+    );
+  }
+
+  // ========================================
+  // COPIAR E EXPORTAR TEXTO
+  // ========================================
+
+  function downloadText(text) {
+    const url = URL.createObjectURL(
+      new Blob(
+        ["\uFEFF", text],
+        { type: "text/plain;charset=utf-8" }
+      )
+    );
+
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "texto-extraido.txt";
+
+    document.body.append(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  function init() {
+    if (!$("docsFile")) return;
+
+    $("docsChoose").addEventListener(
+      "click",
+      () => $("docsFile").click()
+    );
+
+    $("docsClear").addEventListener(
+      "click",
+      clearDocument
+    );
+
+    $("docsFile").addEventListener(
+      "change",
+      async event => {
+        await readDocument(event.target.files?.[0]);
+        event.target.value = "";
+      }
+    );
+
+    $("docsSheetSelect").addEventListener(
+      "change",
+      renderSheet
+    );
+
+    $("docsToImporter").addEventListener(
+      "click",
+      sendToImporter
+    );
+
+    $("docsCopy").addEventListener(
+      "click",
+      async () => {
+        if (documentState?.kind !== "text") return;
+
+        try {
+          await navigator.clipboard.writeText(
+            documentState.text
+          );
+          message("Texto copiado.");
+        } catch {
+          message("Não foi possível copiar automaticamente.");
+        }
+      }
+    );
+
+    $("docsExportText").addEventListener(
+      "click",
+      () => {
+        if (documentState?.kind === "text") {
+          downloadText(documentState.text);
+        }
+      }
+    );
+
+    const zone = $("docsDropzone");
+
+    zone.addEventListener(
+      "click",
+      () => $("docsFile").click()
+    );
+
+    zone.addEventListener("keydown", event => {
+      if (
+        event.key === "Enter" ||
+        event.key === " "
+      ) {
+        event.preventDefault();
+        $("docsFile").click();
+      }
+    });
+
+    zone.addEventListener("dragover", event => {
+      event.preventDefault();
+      zone.classList.add("dragover");
+    });
+
+    zone.addEventListener("dragleave", () => {
+      zone.classList.remove("dragover");
+    });
+
+    zone.addEventListener("drop", async event => {
+      event.preventDefault();
+      zone.classList.remove("dragover");
+
+      await readDocument(
+        event.dataTransfer?.files?.[0]
+      );
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      init,
+      { once: true }
+    );
+  } else {
+    init();
+  }
 })();
