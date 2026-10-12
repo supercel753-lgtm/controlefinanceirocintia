@@ -7,7 +7,6 @@
 */
 
 (() => {
-  const STORE = "caf-suregpa-v2";
   const YEAR = 2026;
   const TYPES = ["suppliers", "contracts", "payments", "pendencias"];
 
@@ -153,48 +152,430 @@
     }, 4000);
   }
 
-  function readDB() {
+  // ========================================
+  // SUPABASE REST / POSTGREST
+  // ========================================
+  // Chave PUBLICÁVEL. Nunca inclua uma chave secreta neste arquivo.
+  // Os nomes e colunas reais são descobertos via API, sem DDL e sem
+  // desativar RLS. Se o esquema for incompatível, a gravação é bloqueada.
+  const SB_URL = "https://bnzkgyymwlulsobbcdpp.supabase.co";
+  const SB_KEY = "sb_publishable_i3JcVDLPefiXQUDwOZZQWA_6_R9m2Wx";
+  const SB_REST = `${SB_URL}/rest/v1`;
+  // Edite apenas se houver mais de uma tabela compatível por cadastro.
+  // null = detectar automaticamente dentre os nomes indicados.
+  const TABLE_MAP = {
+    suppliers: null,
+    contracts: null,
+    payments: null,
+    pendencias: null
+  };
+  const TABLE_CANDIDATES = {
+    suppliers: ["suppliers", "fornecedores"],
+    contracts: ["contracts", "contratos"],
+    payments: ["payments", "pagamentos"],
+    pendencias: ["pendencias", "pending", "pendings"]
+  };
+  const JSON_FIELDS = ["dados", "payload", "registro", "record", "conteudo"];
+  const AUTO_FIELDS = new Set([
+    "created_at", "updated_at", "created_by", "updated_by", "user_id"
+  ]);
+  const FIELD_ALIASES = {
+    supplier: ["supplier", "supplier_id", "fornecedor_id", "id_fornecedor", "fornecedor"],
+    contractId: ["contractId", "contract_id", "contrato_id", "id_contrato", "contrato"],
+    nome: ["nome", "razao_social", "nome_fornecedor"],
+    numero: ["numero", "numero_contrato", "n_contrato"],
+    processo: ["processo", "processo_sei", "numero_processo"],
+    vigenciaInicial: ["vigenciaInicial", "vigencia_inicial", "inicio_vigencia", "data_inicio"],
+    vigenciaFinal: ["vigenciaFinal", "vigencia_final", "fim_vigencia", "data_fim"],
+    valorGlobal: ["valorGlobal", "valor_global", "valor_total_contrato"],
+    custoPosto: ["custoPosto", "custo_posto"],
+    ploa2026: ["ploa2026", "ploa_2026"],
+    gastoAnual2025: ["gastoAnual2025", "gasto_anual_2025"],
+    gastoMensal2025: ["gastoMensal2025", "gasto_mensal_2025"],
+    totalGasto2025: ["totalGasto2025", "total_gasto_2025"],
+    fiscalAdm: ["fiscalAdm", "fiscal_adm", "fiscal_administrativo"],
+    fiscalTecnico: ["fiscalTecnico", "fiscal_tecnico"],
+    tipoCusto: ["tipoCusto", "tipo_custo"],
+    qtdAtual: ["qtdAtual", "qtd_atual"],
+    qtdAnalise: ["qtdAnalise", "qtd_analise"],
+    notaFiscal: ["notaFiscal", "nota_fiscal"],
+    processoPagamento: ["processoPagamento", "processo_pagamento"],
+    nd: ["nd", "natureza_despesa"],
+    cnpj: ["cnpj", "cnpj_fornecedor"],
+    competencia: ["competencia", "mes_competencia"]
+  };
+  const adapters = {};
+  let busy = false;
+  let remoteLoaded = false;
+
+  function snake(name) {
+    return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  }
+
+  function namesFor(field) {
+    return [...new Set([field, snake(field), ...(FIELD_ALIASES[field] || [])])];
+  }
+
+  function explainError(error) {
+    const msg = error?.message || String(error);
+    if (/row.level.security|violates row.level|permission denied|not authorized|unauthorized|jwt/i.test(msg)) {
+      return "Permissão negada pelo Supabase (Auth/RLS). Não é seguro desativar a proteção: " + msg;
+    }
+    return msg;
+  }
+
+  async function request(table, query = {}, options = {}) {
+    const url = new URL(table ? `${SB_REST}/${encodeURIComponent(table)}` : `${SB_REST}/`);
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, String(value));
+    }
+    const headers = {
+      apikey: SB_KEY,
+      Accept: options.openApi ? "application/openapi+json" : "application/json",
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(options.prefer ? { Prefer: options.prefer } : {})
+    };
+    // Ao implantar login, utilize o JWT da sessão; a chave publicável NÃO é JWT.
+    const jwt = window.SUREGPA_ACCESS_TOKEN;
+    if (typeof jwt === "string" && jwt.trim()) {
+      headers.Authorization = `Bearer ${jwt.trim()}`;
+    }
+    let response;
     try {
-      const saved = localStorage.getItem(STORE);
-
-      if (saved === null) return emptyDB();
-
-      const data = JSON.parse(saved);
-
-      if (
-        !data ||
-        typeof data !== "object" ||
-        Array.isArray(data) ||
-        TYPES.some(type => !Array.isArray(data[type]))
-      ) {
-        throw Error("Estrutura de armazenamento inválida.");
-      }
-
-      return data;
-
+      response = await fetch(url.href, {
+        method: options.method || "GET",
+        headers,
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        cache: "no-store"
+      });
     } catch (error) {
-      console.error(error);
-      storageLocked = true;
-      return emptyDB();
+      throw Error(`Falha de conexão com Supabase: ${error.message}`);
+    }
+    const text = await response.text();
+    let content = null;
+    if (text) {
+      try { content = JSON.parse(text); }
+      catch { content = text; }
+    }
+    if (!response.ok) {
+      const message = content?.message || content?.error_description || content?.error || text || response.statusText;
+      const error = Error(`[${response.status}] ${message}`);
+      error.status = response.status;
+      error.code = content?.code || "";
+      throw error;
+    }
+    return content;
+  }
+
+  function missingTable(error) {
+    return error?.code === "PGRST205" ||
+      (error?.status === 404 && /table|relation|schema cache/i.test(error.message));
+  }
+
+  function missingColumn(error) {
+    return /column .*does not exist|could not find.*column|unknown column|column .*not found|PGRST200|PGRST204|42703/i.test(
+      `${error?.message || ""} ${error?.code || ""}`
+    );
+  }
+
+  async function specMetadata() {
+    try {
+      const spec = await request(null, {}, { openApi: true });
+      return spec && typeof spec === "object" ? spec : null;
+    } catch (error) {
+      console.info("Metadados OpenAPI indisponíveis; usando inspeção não destrutiva.", error);
+      return null;
     }
   }
 
-  function saveDB(next) {
-    if (storageLocked) {
-      toast("Armazenamento bloqueado. Verifique o backup.");
+  function schemaProperties(spec, table) {
+    const shape = spec?.definitions?.[table] || spec?.components?.schemas?.[table];
+    return shape?.properties && Object.keys(shape.properties).length
+      ? Object.keys(shape.properties)
+      : null;
+  }
+
+  async function probeColumns(table, type) {
+    const possible = new Set(["id", ...JSON_FIELDS, ...AUTO_FIELDS]);
+    for (const field of columns[type]) {
+      for (const name of namesFor(field)) possible.add(name);
+    }
+    // Verifica nomes de colunas por SELECT ... LIMIT 0, sem alterar registros.
+    async function group(list) {
+      if (!list.length) return [];
+      try {
+        await request(table, { select: list.join(","), limit: 0 });
+        return list;
+      } catch (error) {
+        if (!missingColumn(error)) throw error;
+        if (list.length === 1) return [];
+        const half = Math.floor(list.length / 2);
+        const left = await group(list.slice(0, half));
+        const right = await group(list.slice(half));
+        return left.concat(right);
+      }
+    }
+    return await group([...possible]);
+  }
+
+  function createAdapter(type, table, cols) {
+    const names = new Set(cols);
+    if (!names.has("id")) {
+      throw Error(`Tabela ${table} sem coluna id acessível.`);
+    }
+    const json = JSON_FIELDS.find(name => names.has(name)) || null;
+    const fields = {};
+    for (const field of columns[type]) {
+      const match = namesFor(field).find(name => names.has(name));
+      if (match) fields[field] = match;
+    }
+    const essential = {
+      suppliers: ["nome", "cnpj"],
+      contracts: ["supplier", "processo", "vigenciaInicial", "vigenciaFinal"],
+      payments: ["contractId", "data", "valor"],
+      pendencias: ["contractId", "competencia", "valor", "status"]
+    }[type];
+    if (!json && essential.some(field => !fields[field])) {
+      throw Error(`Tabela ${table} não possui as colunas essenciais de ${type} nem campo JSONB compatível.`);
+    }
+    // Se houver coluna externa de relacionamento, sempre a preenche, mesmo com JSONB.
+    return { table, names, fields, json };
+  }
+
+  async function fetchTableRows(table) {
+    const all = [];
+    const size = 500;
+    for (let offset = 0; ; offset += size) {
+      const batch = await request(table, {
+        select: "*", order: "id.asc", limit: size, offset
+      });
+      if (!Array.isArray(batch)) throw Error(`Resposta inválida da tabela ${table}.`);
+      all.push(...batch);
+      if (batch.length < size) break;
+      if (offset >= 200000) throw Error(`Tabela ${table} excede o limite de leitura segura.`);
+    }
+    return all;
+  }
+
+  async function detectAdapter(type, spec) {
+    const candidates = TABLE_MAP[type]
+      ? [TABLE_MAP[type]]
+      : TABLE_CANDIDATES[type];
+    const failures = [];
+    for (const table of candidates) {
+      let rows;
+      try {
+        rows = await fetchTableRows(table);
+      } catch (error) {
+        if (missingTable(error)) continue;
+        throw Error(`Erro ao consultar ${table}: ${explainError(error)}`);
+      }
+      try {
+        const cols = schemaProperties(spec, table) ||
+          (rows.length ? Object.keys(rows[0]) : await probeColumns(table, type));
+        const adapter = createAdapter(type, table, cols);
+        return { adapter, rows };
+      } catch (error) {
+        failures.push(`${table}: ${error.message}`);
+        if (TABLE_MAP[type]) throw error;
+      }
+    }
+    throw Error(
+      `Não foi possível identificar a tabela de ${type}. ` +
+      (failures.join(" | ") || `Nomes tentados: ${candidates.join(", ")}`) +
+      " Confira o esquema e as políticas de leitura no Supabase."
+    );
+  }
+
+  function fromRemote(type, raw) {
+    const adapter = adapters[type];
+    const data = adapter.json && raw[adapter.json] &&
+      typeof raw[adapter.json] === "object" && !Array.isArray(raw[adapter.json])
+      ? clone(raw[adapter.json]) : {};
+    const known = new Set(["id", adapter.json, ...Object.values(adapter.fields)]);
+    for (const [field, col] of Object.entries(adapter.fields)) {
+      if (field !== "id" && Object.hasOwn(raw, col)) {
+        // Colunas normais sobrepõem dados do JSON para manter FKs atuais.
+        data[field] = raw[col] ?? "";
+      }
+    }
+    for (const [key, value] of Object.entries(raw)) {
+      if (!known.has(key) && !AUTO_FIELDS.has(key)) {
+        data[key] = value;
+      }
+    }
+    data.id = String(raw.id);
+    return data;
+  }
+
+  function toRemote(type, row) {
+    const adapter = adapters[type];
+    if (!adapter) throw Error(`Tabela de ${type} não configurada.`);
+    if (!row || typeof row.id !== "string" || !row.id) {
+      throw Error(`ID inválido em ${type}.`);
+    }
+    const output = { id: row.id };
+    const payload = {};
+    const derived = type === "contracts"
+      ? new Set(["empresa", "cnpj"])
+      : ["payments", "pendencias"].includes(type)
+        ? new Set(["empresa", "cnpj", "numero", "processo"])
+        : new Set();
+    for (const [field, value] of Object.entries(row)) {
+      if (field === "id" || AUTO_FIELDS.has(field)) continue;
+      if (derived.has(field) && !adapter.fields[field] && !adapter.json) continue;
+      const col = adapter.fields[field] || (adapter.names.has(field) ? field : null);
+      if (adapter.json) payload[field] = value;
+      if (!col) {
+        if (!adapter.json && value !== "" && value !== null && value !== undefined) {
+          throw Error(`Campo "${field}" em ${type} não existe na tabela ${adapter.table}. Nenhum dado foi descartado.`);
+        }
+        continue;
+      }
+      let valueToSave = value;
+      if (value === "" && [
+        "valor", ...moneyFields, ...integerFields,
+        "vigenciaInicial", "vigenciaFinal", "data", "vencimento"
+      ].includes(field)) valueToSave = null;
+      if (Object.hasOwn(output, col) && output[col] !== valueToSave) {
+        throw Error(`Campos incompatíveis compartilham a coluna ${col}.`);
+      }
+      output[col] = valueToSave;
+    }
+    if (adapter.json) output[adapter.json] = payload;
+    return output;
+  }
+
+  async function loadDB(first = false) {
+    const state = emptyDB();
+    if (first) {
+      const spec = await specMetadata();
+      const temp = {};
+      const raw = {};
+      for (const type of TYPES) {
+        const found = await detectAdapter(type, spec);
+        temp[type] = found.adapter;
+        raw[type] = found.rows;
+      }
+      Object.assign(adapters, temp);
+      for (const type of TYPES) state[type] = raw[type].map(row => fromRemote(type, row));
+    } else {
+      for (const type of TYPES) {
+        state[type] = (await fetchTableRows(adapters[type].table))
+          .map(row => fromRemote(type, row));
+      }
+    }
+    return state;
+  }
+
+  function changesBetween(previous, next) {
+    const actions = [];
+    for (const type of TYPES) {
+      const oldRows = new Map(previous[type].map(row => [row.id, row]));
+      const newRows = new Map(next[type].map(row => [row.id, row]));
+      for (const [id, row] of newRows) {
+        const old = oldRows.get(id);
+        if (!old) actions.push({ kind: "insert", type, row });
+        else if (JSON.stringify(old) !== JSON.stringify(row)) {
+          actions.push({ kind: "update", type, row, old });
+        }
+      }
+      for (const [id, row] of oldRows) {
+        if (!newRows.has(id)) actions.push({ kind: "delete", type, row });
+      }
+    }
+    const rank = { suppliers: 0, contracts: 1, payments: 2, pendencias: 3 };
+    return actions.sort((a, b) =>
+      (a.kind === "delete" ? 1 : 0) - (b.kind === "delete" ? 1 : 0) ||
+      (a.kind === "delete" ? -rank[a.type] : rank[a.type]) -
+      (b.kind === "delete" ? -rank[b.type] : rank[b.type])
+    );
+  }
+
+  async function runAction(action) {
+    const adapter = adapters[action.type];
+    const id = action.row.id;
+    const query = action.kind === "insert" ? {} : { id: `eq.${id}` };
+    const body = action.kind === "delete" ? undefined : toRemote(action.type, action.row);
+    if (action.kind === "update") {
+      const previous = toRemote(action.type, action.old || action.row);
+      for (const col of Object.keys(previous)) {
+        if (col !== "id" && !Object.hasOwn(body, col)) body[col] = null;
+      }
+    }
+    const result = await request(adapter.table, query, {
+      method: action.kind === "insert" ? "POST" :
+        action.kind === "update" ? "PATCH" : "DELETE",
+      ...(body === undefined ? {} : { body }),
+      prefer: "return=representation"
+    });
+    if (!Array.isArray(result) || result.length !== 1 || String(result[0]?.id) !== id) {
+      throw Error(`A operação ${action.kind} em ${adapter.table} não confirmou 1 registro (ID ${id}). Verifique RLS/SELECT.`);
+    }
+  }
+
+  function inverseAction(action) {
+    if (action.kind === "insert") return { kind: "delete", type: action.type, row: action.row };
+    if (action.kind === "delete") return { kind: "insert", type: action.type, row: action.row };
+    return { kind: "update", type: action.type, row: action.old, old: action.row };
+  }
+
+  async function saveDB(next) {
+    if (storageLocked || !remoteLoaded) {
+      toast("Banco indisponível. Operação não realizada.");
       return false;
     }
-
+    if (busy) {
+      toast("Uma gravação está em andamento. Tente novamente.");
+      return false;
+    }
+    busy = true;
+    const operations = changesBetween(db, next);
+    const applied = [];
     try {
-      localStorage.setItem(STORE, JSON.stringify(next));
-      db = next;
+      // Evita sobrescrever mudanças feitas em outra aba/dispositivo.
+      const fresh = await loadDB();
+      const snapshot = state => TYPES.map(type => JSON.stringify(
+        state[type].map(row => Object.keys(row).sort().map(key => [key, row[key]]))
+          .sort((a, b) => String(a.find(p => p[0] === "id")?.[1] || "")
+            .localeCompare(String(b.find(p => p[0] === "id")?.[1] || "")))
+      )).join("|");
+      if (snapshot(fresh) !== snapshot(db)) {
+        db = fresh;
+        renderAll();
+        throw Error("Os dados mudaram no Supabase desde a última leitura. Tela atualizada; revise a operação.");
+      }
+      // Antes de qualquer gravação, confirme que TODOS os campos podem ser persistidos.
+      for (const op of operations) {
+        if (op.kind !== "delete") toRemote(op.type, op.row);
+      }
+      for (const op of operations) {
+        await runAction(op);
+        applied.push(op);
+      }
+      db = await loadDB();
       renderAll();
       return true;
-
     } catch (error) {
-      console.error(error);
-      toast("Não foi possível salvar os dados.");
+      console.error("Falha de persistência no Supabase", error);
+      let rollbackError = null;
+      for (const op of applied.reverse()) {
+        try { await runAction(inverseAction(op)); }
+        catch (err) { rollbackError = err; console.error("Falha ao reverter alteração", err); }
+      }
+      try {
+        db = await loadDB();
+        renderAll();
+      } catch (err) { rollbackError = err; }
+      if (rollbackError) {
+        storageLocked = true;
+        toast("Falha parcial: banco requer conferência manual. Gravações bloqueadas.");
+      } else {
+        toast(`Não foi possível salvar: ${explainError(error)}`);
+      }
       return false;
+    } finally {
+      busy = false;
     }
   }
 
@@ -901,6 +1282,10 @@
   }
 
   function openForm(type, id = null) {
+    if (storageLocked || !remoteLoaded || busy) {
+      toast("Aguarde a conexão com o Supabase.");
+      return;
+    }
     if (type === "contracts" && !db.suppliers.length) {
       toast("Cadastre um fornecedor primeiro.");
       navigate("suppliers");
@@ -1086,7 +1471,7 @@
     }
   }
 
-  function submitRecord(event, type) {
+  async function submitRecord(event, type) {
     event.preventDefault();
 
     const form = event.currentTarget;
@@ -1135,7 +1520,7 @@
       next[type].push(record);
     }
 
-    if (saveDB(next)) {
+    if (await saveDB(next)) {
       $(dialogs[type][0]).close();
       toast("Registro salvo.");
     }
@@ -1145,7 +1530,7 @@
   // EXCLUIR E CONCLUIR
   // ========================================
 
-  function deleteRecord(type, id) {
+  async function deleteRecord(type, id) {
     const next = clone(db);
 
     if (!next[type].some(item => item.id === id)) {
@@ -1192,12 +1577,12 @@
       item => item.id !== id
     );
 
-    if (saveDB(next)) {
+    if (await saveDB(next)) {
       toast("Registro excluído.");
     }
   }
 
-  function togglePending(id) {
+  async function togglePending(id) {
     const next = clone(db);
     const item = next.pendencias.find(
       row => row.id === id
@@ -1210,7 +1595,7 @@
         ? "aberto"
         : "concluido";
 
-    if (saveDB(next)) {
+    if (await saveDB(next)) {
       toast(
         "Situação atualizada. Nenhum pagamento foi criado."
       );
@@ -1280,6 +1665,7 @@
   }
 
   function exportCSV(type) {
+    if (!remoteLoaded || storageLocked) { toast("Banco indisponível para exportar."); return; }
     const rows = db[type];
 
     if (!rows.length) {
@@ -1338,6 +1724,7 @@
   }
 
   function exportBackup() {
+    if (!remoteLoaded || storageLocked) { toast("Banco indisponível para backup."); return; }
     download(
       `CAF-backup-${today()}.json`,
       JSON.stringify(db, null, 2),
@@ -1416,9 +1803,7 @@
         )
       ) return;
 
-      storageLocked = false;
-
-      if (saveDB(parsed)) {
+      if (await saveDB(parsed)) {
         toast("Backup restaurado.");
       }
 
@@ -2083,6 +2468,7 @@
 
   async function previewImport(file) {
     resetImport();
+    if (!remoteLoaded || storageLocked) { toast("Banco indisponível para importação."); return; }
 
     if (!file) return;
 
@@ -2179,7 +2565,7 @@
     }
   }
 
-  function confirmImport() {
+  async function confirmImport() {
     if (!staged || storageLocked) return;
 
     try {
@@ -2200,11 +2586,11 @@
           `Novos: ${result.added}\n` +
           `Atualizados: ${result.updated}\n` +
           `Rejeitados: ${result.rejected}\n\n` +
-          "Confirme para gravar no navegador."
+          "Confirme para gravar no Supabase."
         )
       ) return;
 
-      if (saveDB(next)) {
+      if (await saveDB(next)) {
         resetImport();
 
         $("importMessage").textContent =
@@ -2225,8 +2611,16 @@
   // EVENTOS DO SISTEMA
   // ========================================
 
-  function init() {
-    db = readDB();
+  async function init() {
+    try {
+      db = await loadDB(true);
+      remoteLoaded = true;
+      storageLocked = false;
+    } catch (error) {
+      console.error("Falha ao carregar Supabase", error);
+      storageLocked = true;
+      toast(`Falha ao carregar banco: ${explainError(error)}`);
+    }
     renderAll();
 
     const forms = {
@@ -2412,17 +2806,24 @@
       }
     );
 
-    window.addEventListener("storage", event => {
-      if (event.key === STORE && !storageLocked) {
-        db = readDB();
+    // Sincroniza a visualização quando a aba volta a receber foco.
+    window.addEventListener("focus", async () => {
+      if (!remoteLoaded || storageLocked || busy || document.querySelector("dialog[open]")) return;
+      try {
+        db = await loadDB();
+        storageLocked = false;
         renderAll();
+      } catch (error) {
+        console.error(error);
+        storageLocked = true;
+        toast(`Falha ao sincronizar: ${explainError(error)}`);
       }
     });
 
     navigate("dashboard");
 
     if (storageLocked) {
-      toast("Armazenamento inválido. Verifique o backup.");
+      toast("Falha na conexão ou no esquema do Supabase. Confira o console.");
     }
   }
 
