@@ -1,4 +1,3 @@
-
 "use strict";
 
 /*
@@ -449,11 +448,12 @@
   async function loadDB(first = false) {
     const state = emptyDB();
     if (first) {
-      const spec = await specMetadata();
+      // O endpoint OpenAPI da raiz pode responder 403 para chaves publicáveis.
+      // Não o utilizamos como teste de conexão ou pré-requisito do cadastro.
       const temp = {};
       const raw = {};
       for (const type of TYPES) {
-        const found = await detectAdapter(type, spec);
+        const found = await detectAdapter(type, null);
         temp[type] = found.adapter;
         raw[type] = found.rows;
       }
@@ -2611,15 +2611,60 @@
   // EVENTOS DO SISTEMA
   // ========================================
 
+  function showConnectionError(error) {
+    // Um aviso persistente evita que um toast genérico esconda o diagnóstico.
+    const detail = explainError(error);
+    const message = /Falha de conexão|Failed to fetch|NetworkError|Load failed|fetch failed/i.test(detail)
+      ? "O navegador não conseguiu alcançar a API. Verifique o endereço do projeto, a conexão e possíveis bloqueios de rede ou CORS."
+      : /401|403|permission|polític|rls|jwt|auth/i.test(detail)
+        ? "A API respondeu, mas a chave ou as permissões não permitem a operação. Verifique Auth, GRANT e RLS sem desativar a proteção."
+        : /identificar a tabela|schema|coluna|column|PGRST205|PGRST204/i.test(detail)
+          ? "A API pode estar acessível, mas a estrutura/nome da tabela não corresponde ao que o aplicativo espera."
+          : "O banco não pôde ser inicializado. Confira o código e a resposta da API.";
+    let panel = document.getElementById("cafSupabaseError");
+    if (!panel) {
+      panel = document.createElement("section");
+      panel.id = "cafSupabaseError";
+      panel.setAttribute("role", "alert");
+      panel.style.cssText =
+        "position:fixed;z-index:2147483647;bottom:16px;right:16px;" +
+        "box-sizing:border-box;max-width:min(580px,calc(100vw - 32px));" +
+        "max-height:80vh;overflow:auto;padding:16px 18px;border-radius:10px;" +
+        "border:1px solid #d97706;background:#fff7ed;color:#7c2d12;" +
+        "box-shadow:0 12px 32px rgba(0,0,0,.18);" +
+        "font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif";
+      document.body.append(panel);
+    }
+    panel.replaceChildren();
+    const title = document.createElement("strong");
+    title.textContent = "Banco de dados indisponível — gravações bloqueadas";
+    const intro = document.createElement("p");
+    intro.textContent = message;
+    const technical = document.createElement("pre");
+    technical.style.cssText =
+      "white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;" +
+      "padding:9px;border-radius:5px;border:1px solid #fed7aa";
+    technical.textContent = detail;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.textContent = "Tentar novamente";
+    retry.style.cssText =
+      "padding:8px 12px;cursor:pointer;border-radius:6px;border:1px solid #c2410c;" +
+      "background:#fff;color:#9a3412;font-weight:600";
+    retry.addEventListener("click", () => window.location.reload());
+    panel.append(title, intro, technical, retry);
+    console.error("[CAF] Erro original do Supabase:", error);
+  }
+
   async function init() {
     try {
       db = await loadDB(true);
       remoteLoaded = true;
       storageLocked = false;
+      document.getElementById("cafSupabaseError")?.remove();
     } catch (error) {
-      console.error("Falha ao carregar Supabase", error);
       storageLocked = true;
-      toast(`Falha ao carregar banco: ${explainError(error)}`);
+      showConnectionError(error);
     }
     renderAll();
 
@@ -2822,9 +2867,6 @@
 
     navigate("dashboard");
 
-    if (storageLocked) {
-      toast("Falha na conexão ou no esquema do Supabase. Confira o console.");
-    }
   }
 
   if (document.readyState === "loading") {
