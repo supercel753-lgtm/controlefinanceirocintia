@@ -1,18 +1,10 @@
+import { supabase } from "../supabase.js";
 
-import { supabase } from '../supabase.js';
-
-/*
- * CAF SUREG-PA — app.js
- * Integração com Supabase para a estrutura:
- * instituicoes, membros_instituicao, suppliers, contracts,
- * pagamentos, pendencias e importacoes.
- *
- * Importante:
- * - Requer uma sessão autenticada do Supabase.
- * - Respeita RLS; não usa service_role nem desativa políticas.
- * - Campos avançados que ainda não existem em colunas próprias
- *   são preservados em metadados dentro de colunas de texto.
- */
+/* =========================================================
+   CONTROLE FINANCEIRO SUREGPA
+   Front-end Supabase: autenticação, instituição, CRUD,
+   painel, filtros, CSV, importação e exportação.
+   ========================================================= */
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -25,2291 +17,1667 @@ const state = {
   contracts: [],
   payments: [],
   pending: [],
-  imports: [],
-  importRows: [],
-  importHeaders: [],
-  importFilename: '',
-  docsWorkbook: null,
-  editing: { supplier: null, contract: null, payment: null, pending: null },
-  busy: false
+  busy: false,
+  editing: {
+    supplier: null,
+    contract: null,
+    payment: null,
+    pending: null
+  }
 };
 
 const TABLES = {
-  suppliers: 'suppliers',
-  contracts: 'contracts',
-  payments: 'pagamentos',
-  pendencias: 'pendencias',
-  importacoes: 'importacoes'
+  suppliers: "suppliers",
+  contracts: "contracts",
+  payments: "pagamentos",
+  pending: "pendencias"
 };
 
-const TITLES = {
-  dashboard: 'Visão geral',
-  contracts: 'Contratos',
-  payments: 'Pagamentos',
-  pending: 'Pendências',
-  budget: 'Orçamento e PLOA',
-  suppliers: 'Fornecedores',
-  files: 'Importar e exportar',
-  documents: 'Central de Documentos',
-  settings: 'Configurações'
+const money = value =>
+  Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  });
+
+const dateBR = value => {
+  if (!value) return "—";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString("pt-BR");
 };
 
-const META_START = '\n\n<!--CAF_META:';
-const META_END = '-->';
+const today = () => new Date().toISOString().slice(0, 10);
 
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[ch]));
+function escapeHTML(value = "") {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
 }
 
-function num(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+function notify(message, type = "info") {
+  let toast = $("#toast");
 
-  const s = String(value ?? '')
-    .trim()
-    .replace(/\s/g, '')
-    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
-    .replace(',', '.');
-
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function money(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  }).format(num(value));
-}
-
-function dateBR(value) {
-  if (!value) return '—';
-
-  const s = String(value).slice(0, 10);
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : esc(value);
-}
-
-function monthBR(value) {
-  if (!value) return '—';
-
-  const m = String(value).match(/^(\d{4})-(\d{2})/);
-  return m ? `${m[2]}/${m[1]}` : esc(value);
-}
-
-function isoToday() {
-  const d = new Date();
-
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function isoMonth(value) {
-  if (!value) return null;
-
-  return /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
-}
-
-function notify(message, kind = 'info') {
-  const toast = $('#toast');
-
-  if (toast) {
-    toast.textContent = message;
-    toast.classList.add('show');
-    toast.dataset.kind = kind;
-
-    clearTimeout(notify.timer);
-    notify.timer = setTimeout(() => toast.classList.remove('show'), 4500);
-  } else {
-    alert(message);
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "toast";
+    toast.setAttribute("role", "status");
+    Object.assign(toast.style, {
+      position: "fixed",
+      bottom: "22px",
+      right: "22px",
+      zIndex: "99999",
+      maxWidth: "min(440px,90vw)",
+      padding: "14px 18px",
+      borderRadius: "12px",
+      color: "#fff",
+      background: type === "error" ? "#b42318" :
+        type === "success" ? "#18794e" : "#243447",
+      boxShadow: "0 8px 30px #0002"
+    });
+    document.body.appendChild(toast);
   }
+
+  toast.textContent = message;
+  toast.style.background = type === "error" ? "#b42318" :
+    type === "success" ? "#18794e" : "#243447";
+  toast.hidden = false;
+
+  clearTimeout(notify.timer);
+  notify.timer = setTimeout(() => {
+    toast.hidden = true;
+  }, 5000);
 }
 
-function setMessage(id, message) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = message;
-}
-
-function fail(error, prefix = 'Operação não concluída') {
-  console.error(prefix, error);
+function showError(error, action = "Operação") {
+  console.error(`[SUREGPA] ${action}:`, error);
 
   const detail = error?.message || error?.details || String(error);
-  notify(`${prefix}: ${detail}`, 'error');
+  notify(`${action}: ${detail}`, "error");
 }
 
-function requireWrite() {
-  if (!state.user || !state.institution) {
-    throw new Error('Você precisa estar autenticado e vinculado a uma instituição.');
+function setBusy(value) {
+  state.busy = value;
+  document.body.classList.toggle("app-busy", value);
+}
+
+function canEdit() {
+  return ["administrador", "editor"].includes(state.role);
+}
+
+function requireEdit() {
+  if (canEdit()) return true;
+  notify("Seu perfil permite apenas consultar os dados.", "error");
+  return false;
+}
+
+function addInstitution(payload) {
+  if (!state.institution?.id) {
+    throw new Error("Nenhuma instituição está selecionada.");
   }
 
-  if (!['administrador', 'editor'].includes(state.role)) {
-    throw new Error('Seu perfil é somente leitura.');
+  return {
+    ...payload,
+    instituicao_id: state.institution.id
+  };
+}
+
+/* =========================
+   TELA DE AUTENTICAÇÃO
+   ========================= */
+
+function renderLogin() {
+  let panel = $("#suregpaLogin");
+
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "suregpaLogin";
+
+    Object.assign(panel.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "99990",
+      background: "#f4f6fa",
+      display: "grid",
+      placeItems: "center",
+      padding: "20px",
+      overflowY: "auto"
+    });
+
+    panel.innerHTML = `
+      <form id="suregpaLoginForm"
+        style="width:min(440px,100%);background:white;padding:30px;
+        border-radius:18px;box-shadow:0 12px 45px #15223818">
+        <h1 style="margin:0 0 8px;color:#173b67">
+          Controle Financeiro SUREGPA
+        </h1>
+        <p style="color:#65748b;margin-bottom:24px">
+          Entre com sua conta autorizada para acessar o sistema.
+        </p>
+
+        <label for="suregpaEmail">E-mail</label>
+        <input id="suregpaEmail" type="email" autocomplete="username"
+          required placeholder="seu@email.gov.br"
+          style="display:block;box-sizing:border-box;width:100%;
+          padding:12px;margin:8px 0 18px;border:1px solid #ccd4df;
+          border-radius:9px">
+
+        <label for="suregpaPassword">Senha</label>
+        <input id="suregpaPassword" type="password"
+          autocomplete="current-password" required
+          style="display:block;box-sizing:border-box;width:100%;
+          padding:12px;margin:8px 0 20px;border:1px solid #ccd4df;
+          border-radius:9px">
+
+        <button type="submit"
+          style="width:100%;padding:13px;border:0;border-radius:9px;
+          background:#174a80;color:white;font-weight:700;cursor:pointer">
+          Entrar no sistema
+        </button>
+
+        <button type="button" id="suregpaForgot"
+          style="width:100%;padding:12px;margin-top:8px;border:0;
+          background:transparent;color:#174a80;cursor:pointer">
+          Esqueci minha senha
+        </button>
+
+        <p id="suregpaLoginMessage"
+          style="color:#b42318;white-space:pre-wrap"></p>
+      </form>`;
+
+    document.body.appendChild(panel);
   }
-}
 
-function attachInstitution(row) {
-  return { ...row, instituicao_id: state.institution.id };
-}
+  panel.hidden = false;
 
-function splitMeta(text) {
-  const value = String(text ?? '');
-  const at = value.lastIndexOf(META_START);
+  const form = $("#suregpaLoginForm");
 
-  if (at < 0) return { text: value, meta: {} };
+  if (form.dataset.bound) return;
+  form.dataset.bound = "1";
 
-  const end = value.indexOf(META_END, at);
-  if (end < 0) return { text: value, meta: {} };
-
-  try {
-    const meta = JSON.parse(value.slice(at + META_START.length, end));
-
-    return {
-      text: value.slice(0, at).trim(),
-      meta: meta && typeof meta === 'object' ? meta : {}
-    };
-  } catch {
-    return { text: value, meta: {} };
-  }
-}
-
-function packMeta(text, meta) {
-  const clean = String(text ?? '').trim();
-
-  const filtered = Object.fromEntries(
-    Object.entries(meta || {}).filter(([, v]) =>
-      v !== '' && v !== null && v !== undefined
-    )
-  );
-
-  return Object.keys(filtered).length
-    ? `${clean}${META_START}${JSON.stringify(filtered)}${META_END}`
-    : clean || null;
-}
-
-function contractFromDb(row) {
-  const parsed = splitMeta(row.observacoes);
-
-  return {
-    ...row,
-    supplier: row.fornecedor_id || '',
-    processo: row.numero_processo || '',
-    vigenciaInicial: row.data_inicio || '',
-    vigenciaFinal: row.data_fim || '',
-    valorGlobal: num(row.valor),
-    observacoes: parsed.text,
-    ...parsed.meta
-  };
-}
-
-function paymentFromDb(row) {
-  const parsed = splitMeta(row.descricao);
-
-  return {
-    ...row,
-    contractId: row.contrato_id || '',
-    data: row.data_pagamento || '',
-    competencia: row.competencia ? String(row.competencia).slice(0, 7) : '',
-    valor: num(row.valor),
-    notaFiscal: row.numero_documento || '',
-    descricao: parsed.text,
-    ...parsed.meta
-  };
-}
-
-function pendingFromDb(row) {
-  const parsed = splitMeta(row.descricao);
-
-  return {
-    ...row,
-    contractId: row.contrato_id || '',
-    competencia: parsed.meta.competencia || '',
-    valor: num(parsed.meta.valor),
-    referencia: parsed.meta.referencia || '',
-    vencimento: row.prazo || '',
-    status: row.status === 'concluida' ? 'concluido' : row.status,
-    observacoes: parsed.text,
-    ...parsed.meta
-  };
-}
-
-function supplierFromDb(row) {
-  return {
-    ...row,
-    cnpj: row.documento || '',
-    observacoes: row.observacoes || ''
-  };
-}
-
-function supplierName(id) {
-  return state.suppliers.find(x => x.id === id)?.nome || 'Fornecedor não identificado';
-}
-
-function contractLabel(id) {
-  const c = state.contracts.find(x => x.id === id);
-
-  return c
-    ? `${c.numero || 'Sem número'} — ${supplierName(c.fornecedor_id)}`
-    : 'Contrato não identificado';
-}
-
-function contractStatus(c) {
-  if (!c.data_inicio || !c.data_fim) return 'Sem vigência';
-
-  const today = isoToday();
-
-  if (c.data_inicio > today) return 'A iniciar';
-  if (c.data_fim < today) return 'Encerrado';
-
-  return 'Vigente';
-}
-
-function statusPill(status) {
-  const s = String(status || '').toLowerCase();
-
-  const cls = [
-    'concluido',
-    'concluída',
-    'pago',
-    'paga',
-    'ativo',
-    'vigente',
-    'processada',
-    'concluída'
-  ].includes(s)
-    ? 'good'
-    : ['cancelado', 'rejeitada', 'encerrado', 'encerrada'].includes(s)
-      ? 'bad'
-      : 'warning';
-
-  return `<span class="status-pill ${cls}">${esc(status || '—')}</span>`;
-}
-
-function emptyRow(cols, message = 'Nenhum registro encontrado.') {
-  return `<tr><td colspan="${cols}" class="muted">${esc(message)}</td></tr>`;
-}
-
-function ensureLoginUI() {
-  if ($('#cafAuthOverlay')) return;
-
-  const overlay = document.createElement('div');
-
-  overlay.id = 'cafAuthOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(9,28,43,.78);display:none;align-items:center;justify-content:center;padding:20px;';
-
-  overlay.innerHTML = `
-    <form id="cafAuthForm" style="background:#fff;color:#17384c;width:min(430px,100%);padding:28px;border-radius:16px;box-shadow:0 20px 70px #0004;font:inherit">
-      <h2 style="margin:0 0 8px">Acesso ao CAF SUREG-PA</h2>
-      <p style="margin:0 0 18px;color:#587184">Entre com sua conta autorizada do sistema.</p>
-
-      <label style="display:block;margin:12px 0 5px;font-weight:700">E-mail</label>
-      <input name="email" type="email" autocomplete="username" required style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #ccd9e2;border-radius:8px">
-
-      <label style="display:block;margin:12px 0 5px;font-weight:700">Senha</label>
-      <input name="password" type="password" autocomplete="current-password" required style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #ccd9e2;border-radius:8px">
-
-      <p id="cafAuthError" role="alert" style="color:#a32626;min-height:1.3em"></p>
-
-      <button type="submit" style="width:100%;padding:12px;border:0;border-radius:8px;background:#126da1;color:#fff;font-weight:800;cursor:pointer">Entrar</button>
-
-      <p style="font-size:12px;color:#60798a;margin-bottom:0">Não compartilhe sua senha. O acesso depende das permissões cadastradas no Supabase.</p>
-    </form>`;
-
-  document.body.append(overlay);
-
-  $('#cafAuthForm', overlay).addEventListener('submit', async event => {
+  form.addEventListener("submit", async event => {
     event.preventDefault();
 
-    const form = event.currentTarget;
+    const email = $("#suregpaEmail").value.trim();
+    const password = $("#suregpaPassword").value;
+    const message = $("#suregpaLoginMessage");
     const button = $('button[type="submit"]', form);
 
     button.disabled = true;
-    button.textContent = 'Entrando...';
-    setMessage('cafAuthError', '');
+    button.textContent = "Entrando...";
+    message.textContent = "";
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: form.elements.email.value.trim(),
-        password: form.elements.password.value
+        email,
+        password
       });
 
       if (error) throw error;
 
-      form.reset();
-      overlay.style.display = 'none';
-
-      await initialize();
+      await initializeApp();
     } catch (error) {
-      setMessage('cafAuthError', error.message || 'Não foi possível entrar.');
+      message.textContent = error.message || "Não foi possível entrar.";
     } finally {
       button.disabled = false;
-      button.textContent = 'Entrar';
+      button.textContent = "Entrar no sistema";
+    }
+  });
+
+  $("#suregpaForgot").addEventListener("click", async () => {
+    const email = $("#suregpaEmail").value.trim();
+
+    if (!email) {
+      $("#suregpaLoginMessage").textContent =
+        "Informe seu e-mail para receber o link de recuperação.";
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin
+      });
+
+      if (error) throw error;
+
+      $("#suregpaLoginMessage").style.color = "#18794e";
+      $("#suregpaLoginMessage").textContent =
+        "Se o endereço estiver cadastrado, você receberá as instruções.";
+    } catch (error) {
+      $("#suregpaLoginMessage").style.color = "#b42318";
+      $("#suregpaLoginMessage").textContent = error.message;
     }
   });
 }
 
-function showLogin(message = '') {
-  ensureLoginUI();
-
-  const overlay = $('#cafAuthOverlay');
-  overlay.style.display = 'flex';
-
-  setMessage('cafAuthError', message);
-
-  const app = $('.app-layout');
-  if (app) app.setAttribute('aria-hidden', 'true');
-}
-
 function hideLogin() {
-  const overlay = $('#cafAuthOverlay');
-
-  if (overlay) overlay.style.display = 'none';
-
-  const app = $('.app-layout');
-  if (app) app.removeAttribute('aria-hidden');
+  const panel = $("#suregpaLogin");
+  if (panel) panel.hidden = true;
 }
 
-async function resolveMembership() {
-  const { data: memberships, error } = await supabase
-    .from('membros_instituicao')
-    .select('instituicao_id, papel')
-    .eq('usuario_id', state.user.id);
+/* =========================
+   INSTITUIÇÃO E PERMISSÕES
+   ========================= */
+
+async function loadMembership() {
+  const { data, error } = await supabase
+    .from("membros_instituicao")
+    .select("instituicao_id, papel")
+    .eq("usuario_id", state.user.id);
 
   if (error) throw error;
 
-  if (!memberships?.length) {
-    throw new Error('Seu usuário não está vinculado a nenhuma instituição em membros_instituicao.');
+  if (!data?.length) {
+    throw new Error(
+      "Sua conta não está vinculada a uma instituição. " +
+      "Peça ao administrador para cadastrar sua participação."
+    );
   }
 
-  const ids = memberships.map(m => m.instituicao_id);
+  let membership = data[0];
 
-  const { data: institutions, error: instError } = await supabase
-    .from('instituicoes')
-    .select('id,nome,codigo,ativa')
-    .in('id', ids)
-    .eq('ativa', true);
+  if (data.length > 1) {
+    const options = data.map((item, index) =>
+      `${index + 1}. ${item.instituicao_id} (${item.papel})`
+    ).join("\n");
 
-  if (instError) throw instError;
+    const chosen = prompt(
+      "Escolha a instituição pelo número:\n" + options,
+      "1"
+    );
 
-  const available = (institutions || []).map(i => ({
-    ...i,
-    papel: memberships.find(m => m.instituicao_id === i.id)?.papel || 'leitor'
-  }));
+    const index = Number(chosen) - 1;
 
-  if (!available.length) {
-    throw new Error('Há vínculo de usuário, mas nenhuma instituição ativa está acessível.');
+    if (!Number.isInteger(index) || !data[index]) {
+      throw new Error("Seleção de instituição inválida.");
+    }
+
+    membership = data[index];
   }
 
-  // Seleciona a primeira instituição ativa.
-  // Um seletor multi-instituição pode ser adicionado depois.
-  state.institution = available[0];
-  state.role = available[0].papel;
+  const { data: institution, error: institutionError } = await supabase
+    .from("instituicoes")
+    .select("*")
+    .eq("id", membership.instituicao_id)
+    .maybeSingle();
+
+  if (institutionError) throw institutionError;
+  if (!institution) throw new Error("Instituição não encontrada.");
+  if (institution.ativa === false) {
+    throw new Error("Esta instituição está inativa.");
+  }
+
+  state.institution = institution;
+  state.role = membership.papel;
 }
 
-async function fetchTable(table, order = 'criado_em') {
-  let query = supabase
-    .from(table)
-    .select('*')
-    .eq('instituicao_id', state.institution.id);
+/* =========================
+   CARREGAMENTO DE DADOS
+   ========================= */
 
-  if (order) {
-    query = query.order(order, {
-      ascending: false,
-      nullsFirst: false
-    });
+async function fetchRows(table, orderColumn = "criado_em") {
+  let query = supabase.from(table).select("*");
+
+  if (state.institution?.id) {
+    query = query.eq("instituicao_id", state.institution.id);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await query.order(orderColumn, {
+    ascending: false
+  });
 
   if (error) throw error;
-
   return data || [];
 }
 
-async function loadData() {
-  const [suppliers, contracts, payments, pending, imports] = await Promise.all([
-    fetchTable('suppliers'),
-    fetchTable('contracts'),
-    fetchTable('pagamentos'),
-    fetchTable('pendencias'),
-    fetchTable('importacoes')
+async function loadAllData() {
+  const results = await Promise.allSettled([
+    fetchRows(TABLES.suppliers),
+    fetchRows(TABLES.contracts),
+    fetchRows(TABLES.payments),
+    fetchRows(TABLES.pending)
   ]);
 
-  state.suppliers = suppliers.map(supplierFromDb);
-  state.contracts = contracts.map(contractFromDb);
-  state.payments = payments.map(paymentFromDb);
-  state.pending = pending.map(pendingFromDb);
-  state.imports = imports;
-}
+  const labels = [
+    "fornecedores",
+    "contratos",
+    "pagamentos",
+    "pendências"
+  ];
 
-async function initialize() {
-  if (state.busy) return;
+  const errors = [];
 
-  state.busy = true;
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      const value = result.value;
 
-  try {
-    const { data, error } = await supabase.auth.getSession();
-
-    if (error) throw error;
-
-    if (!data.session) {
-      state.user = null;
-      showLogin();
-      return;
-    }
-
-    state.user = data.session.user;
-
-    await resolveMembership();
-    await loadData();
-
-    hideLogin();
-    renderAll();
-    updateStorageInfo();
-
-    notify(`Conectado: ${state.institution.nome} (${state.role}).`);
-  } catch (error) {
-    console.error('Inicialização do CAF falhou:', error);
-
-    if (!state.user) {
-      showLogin(error.message || 'Não foi possível validar a sessão.');
+      if (index === 0) state.suppliers = value;
+      if (index === 1) state.contracts = value;
+      if (index === 2) state.payments = value;
+      if (index === 3) state.pending = value;
     } else {
-      showFatal(error.message || 'Banco de dados indisponível.');
+      errors.push(`${labels[index]}: ${result.reason?.message || result.reason}`);
+      console.error(result.reason);
     }
-  } finally {
-    state.busy = false;
-  }
-}
+  });
 
-function showFatal(message) {
-  let box = $('#cafFatal');
-
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'cafFatal';
-    box.style.cssText = 'margin:16px;padding:14px;border:1px solid #e5b5b5;background:#fff3f3;color:#842323;border-radius:10px;white-space:pre-wrap';
-
-    $('.main')?.prepend(box);
-  }
-
-  box.textContent = `Banco de dados indisponível — ${message}`;
-}
-
-async function reloadAndRender(successMessage) {
-  await loadData();
   renderAll();
-  updateStorageInfo();
 
-  if (successMessage) notify(successMessage, 'success');
+  if (errors.length) {
+    notify(
+      "Alguns dados não puderam ser carregados:\n" + errors.join("\n"),
+      "error"
+    );
+  }
 }
 
-function updateStorageInfo() {
-  const el = $('#storageInfo');
+/* =========================
+   RENDERIZAÇÃO
+   ========================= */
 
-  if (el) {
-    el.textContent = `Supabase conectado · ${state.institution?.nome || 'Sem instituição'} · Perfil: ${state.role || '—'} · Usuário: ${state.user?.email || state.user?.id || '—'}.`;
-  }
+function putText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function putHTML(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.innerHTML = value;
+}
+
+function supplierName(id) {
+  return state.suppliers.find(item => item.id === id)?.nome || "Fornecedor";
+}
+
+function contractNumber(id) {
+  const contract = state.contracts.find(item => item.id === id);
+  return contract?.numero || contract?.objeto || "Contrato";
 }
 
 function renderAll() {
+  const institutionName = state.institution?.nome || "SUREGPA";
+
+  putText("pageTitle", institutionName);
+  putText("storageInfo", `${institutionName} · ${state.role || "consulta"}`);
+  putText("storageInfoDetail", `Instituição: ${institutionName} · Perfil: ${state.role || "consulta"}`);
+
+  renderDashboard();
   renderSuppliers();
   renderContracts();
   renderPayments();
   renderPending();
-  renderDashboard();
   renderBudget();
-  populateSelects();
-  applyRoleUI();
+  renderPermissionState();
 }
 
-function applyRoleUI() {
-  const readOnly = !['administrador', 'editor'].includes(state.role);
-
-  $$('button[data-action^="new-"], #confirmImport, button[data-action="delete"]').forEach(b => {
-    b.disabled = readOnly;
-
-    if (readOnly) b.title = 'Seu perfil não permite alterações.';
+function renderPermissionState() {
+  $$("button[data-action]").forEach(button => {
+    if (!canEdit()) {
+      button.disabled = true;
+      button.title = "Seu perfil não permite alterações.";
+    }
   });
-
-  let account = $('#cafAccount');
-
-  if (!account) {
-    account = document.createElement('div');
-    account.id = 'cafAccount';
-    account.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-left:auto;font-size:12px;color:#55768c';
-
-    $('.header-actions')?.append(account);
-  }
-
-  account.innerHTML = `<span>${esc(state.user?.email || '')} · ${esc(state.role || '')}</span><button type="button" class="btn subtle" id="cafSignOut">Sair</button>`;
-
-  $('#cafSignOut')?.addEventListener('click', async () => {
-    const { error } = await supabase.auth.signOut();
-
-    if (error) return fail(error, 'Erro ao sair');
-
-    state.user = null;
-    state.institution = null;
-    state.role = null;
-
-    showLogin();
-  }, { once: true });
-}
-
-function renderSuppliers() {
-  const q = ($('#searchSuppliers')?.value || '').toLowerCase();
-
-  const rows = state.suppliers.filter(s =>
-    `${s.nome} ${s.documento || s.cnpj || ''}`.toLowerCase().includes(q)
-  );
-
-  setMessage('countSuppliers', `${rows.length} fornecedor(es)`);
-
-  const tbody = $('#rowsSuppliers');
-  if (!tbody) return;
-
-  tbody.innerHTML = rows.length
-    ? rows.map(s => {
-      const contracts = state.contracts.filter(c => c.fornecedor_id === s.id).length;
-
-      return `<tr>
-        <td>${esc(s.nome)}</td>
-        <td>${esc(s.documento || s.cnpj || '—')}</td>
-        <td>${esc(s.email || s.telefone || '—')}</td>
-        <td>${contracts}</td>
-        <td>
-          ${actionButton('edit-supplier', s.id, 'Editar')}
-          ${actionButton('delete-supplier', s.id, 'Excluir', 'danger')}
-        </td>
-      </tr>`;
-    }).join('')
-    : emptyRow(5);
-}
-
-function renderContracts() {
-  const q = ($('#searchContracts')?.value || '').toLowerCase();
-  const statusFilter = $('#filterContractStatus')?.value || 'todos';
-
-  const rows = state.contracts.filter(c => {
-    const status = contractStatus(c);
-
-    return `${c.numero} ${c.numero_processo} ${c.objeto} ${supplierName(c.fornecedor_id)}`.toLowerCase().includes(q)
-      && (statusFilter === 'todos' || status === statusFilter);
-  });
-
-  setMessage('countContracts', `${rows.length} contrato(s)`);
-
-  const tbody = $('#rowsContracts');
-  if (!tbody) return;
-
-  tbody.innerHTML = rows.length
-    ? rows.map(c => `<tr>
-      <td>
-        <strong>${esc(c.numero || 'Sem número')}</strong><br>
-        <small>${esc(c.numero_processo || '')}</small>
-      </td>
-      <td>${esc(supplierName(c.fornecedor_id))}</td>
-      <td>${dateBR(c.data_inicio)} – ${dateBR(c.data_fim)}</td>
-      <td>${money(c.valor)}</td>
-      <td>${statusPill(contractStatus(c))}</td>
-      <td>
-        ${actionButton('edit-contract', c.id, 'Editar')}
-        ${actionButton('delete-contract', c.id, 'Excluir', 'danger')}
-      </td>
-    </tr>`).join('')
-    : emptyRow(6);
-}
-
-function renderPayments() {
-  const q = ($('#searchPayments')?.value || '').toLowerCase();
-  const month = $('#filterPaymentMonth')?.value || '';
-
-  const rows = state.payments.filter(p =>
-    `${supplierName(state.contracts.find(c => c.id === p.contrato_id)?.fornecedor_id)} ${contractLabel(p.contrato_id)} ${p.numero_documento} ${p.descricao}`.toLowerCase().includes(q)
-    && (!month || String(p.competencia || '').startsWith(month))
-  );
-
-  setMessage('countPayments', `${rows.length} pagamento(s)`);
-
-  const tbody = $('#rowsPayments');
-  if (!tbody) return;
-
-  tbody.innerHTML = rows.length
-    ? rows.map(p => `<tr>
-      <td>${dateBR(p.data_pagamento)}</td>
-      <td>${esc(contractLabel(p.contrato_id))}</td>
-      <td>${monthBR(p.competencia)}</td>
-      <td>${esc(p.numero_documento || p.descricao || '—')}</td>
-      <td>${money(p.valor)}</td>
-      <td>
-        ${actionButton('edit-payment', p.id, 'Editar')}
-        ${actionButton('delete-payment', p.id, 'Excluir', 'danger')}
-      </td>
-    </tr>`).join('')
-    : emptyRow(6);
-}
-
-function renderPending() {
-  const q = ($('#searchPending')?.value || '').toLowerCase();
-  const filter = $('#filterPendingStatus')?.value || 'aberto';
-
-  const rows = state.pending.filter(p => {
-    const done = ['concluido', 'concluida', 'resolvida', 'resolvido']
-      .includes(String(p.status).toLowerCase());
-
-    return `${p.titulo} ${p.descricao} ${p.referencia} ${contractLabel(p.contrato_id)}`.toLowerCase().includes(q)
-      && (filter === 'todos' || (filter === 'concluido' ? done : !done));
-  });
-
-  setMessage('countPending', `${rows.length} pendência(s)`);
-
-  const box = $('#pendingCards');
-  if (!box) return;
-
-  box.innerHTML = rows.length
-    ? rows.map(p => `<article class="pending-card">
-      <div>
-        <strong>${esc(p.titulo || contractLabel(p.contrato_id))}</strong>
-        <p>${esc(p.descricao || p.observacoes || '')}</p>
-        <small>${esc(contractLabel(p.contrato_id))} · Prazo: ${dateBR(p.prazo)}</small>
-      </div>
-      <div>
-        <strong>${money(p.valor)}</strong><br>
-        ${statusPill(p.status)}
-        <div class="button-row">
-          ${actionButton('edit-pending', p.id, 'Editar')}
-          ${actionButton('toggle-pending', p.id, p.status === 'concluido' ? 'Reabrir' : 'Concluir')}
-          ${actionButton('delete-pending', p.id, 'Excluir', 'danger')}
-        </div>
-      </div>
-    </article>`).join('')
-    : `<p class="muted">Nenhuma pendência encontrada.</p>`;
 }
 
 function renderDashboard() {
-  const active = state.contracts.filter(c => contractStatus(c) === 'Vigente');
-
-  const paid = state.payments.filter(p =>
-    String(p.data_pagamento || '').startsWith('2026')
+  const activeContracts = state.contracts.filter(contract =>
+    !["encerrado", "cancelado", "inativo"].includes(
+      String(contract.status || "").toLowerCase()
+    )
   );
 
-  const open = state.pending.filter(p =>
-    !['concluido', 'concluida', 'resolvida', 'resolvido']
-      .includes(String(p.status).toLowerCase())
+  const paid = state.payments
+    .filter(item => ["pago", "paga", "liquidado", "liquidada"].includes(
+      String(item.status || "").toLowerCase()
+    ))
+    .reduce((sum, item) => sum + Number(item.valor || 0), 0);
+
+  const unpaid = state.payments
+    .filter(item => !["pago", "paga", "liquidado", "liquidada"].includes(
+      String(item.status || "").toLowerCase()
+    ))
+    .reduce((sum, item) => sum + Number(item.valor || 0), 0);
+
+  const contractValue = activeContracts.reduce(
+    (sum, item) => sum + Number(item.valor || 0), 0
   );
 
-  const ploa = state.contracts.reduce((sum, c) => sum + num(c.ploa2026), 0);
-  const paidTotal = paid.reduce((sum, p) => sum + num(p.valor), 0);
-  const pendingTotal = open.reduce((sum, p) => sum + num(p.valor), 0);
+  putText("kpiActive", String(activeContracts.length));
+  putText("kpiActiveSub", `${state.contracts.length} contratos cadastrados`);
+  putText("kpiPaid", money(paid));
+  putText("kpiPaidSub", "Pagamentos com status de pago");
+  putText("kpiPending", money(unpaid));
+  putText("kpiPendingSub", `${state.pending.length} pendências registradas`);
+  putText("kpiPloa", money(contractValue));
+  putText("kpiPloaSub", "Valor total dos contratos ativos");
 
-  setMessage('kpiActive', active.length);
-  setMessage('kpiActiveSub', `${state.contracts.length} contratos cadastrados`);
-  setMessage('kpiPaid', money(paidTotal));
-  setMessage('kpiPaidSub', `${paid.length} pagamentos registrados em 2026`);
-  setMessage('kpiPending', money(pendingTotal));
-  setMessage('kpiPendingSub', `${open.length} registros pendentes`);
-  setMessage('kpiPloa', money(ploa));
-  setMessage('kpiPloaSub', 'Planejamento contratual informado');
+  const recent = [...state.payments]
+    .sort((a, b) => String(b.competencia || b.criado_em || "")
+      .localeCompare(String(a.competencia || a.criado_em || "")))
+    .slice(0, 6);
 
-  const recentPayments = $('#recentPayments');
+  putHTML("recentPayments", recent.length
+    ? recent.map(item => `
+      <tr>
+        <td>${escapeHTML(item.numero_documento || item.descricao || "Pagamento")}</td>
+        <td>${escapeHTML(contractNumber(item.contrato_id))}</td>
+        <td>${money(item.valor)}</td>
+        <td>${escapeHTML(item.status || "Pendente")}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="4">Nenhum pagamento cadastrado.</td></tr>`);
 
-  if (recentPayments) {
-    const recent = [...state.payments]
-      .sort((a, b) => String(b.data_pagamento || '').localeCompare(String(a.data_pagamento || '')))
-      .slice(0, 5);
+  const recentPending = [...state.pending].slice(0, 5);
 
-    recentPayments.innerHTML = recent.length
-      ? recent.map(p => `<div class="mini-row">
-          <span>${esc(contractLabel(p.contrato_id))}<small>${dateBR(p.data_pagamento)}</small></span>
-          <strong>${money(p.valor)}</strong>
-        </div>`).join('')
-      : '<p class="muted">Nenhum pagamento cadastrado.</p>';
-  }
+  putHTML("recentPending", recentPending.length
+    ? recentPending.map(item => `
+      <tr>
+        <td>${escapeHTML(item.titulo || item.descricao || "Pendência")}</td>
+        <td>${escapeHTML(item.status || "Aberta")}</td>
+        <td>${dateBR(item.prazo)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="3">Nenhuma pendência cadastrada.</td></tr>`);
 
-  const recentPending = $('#recentPending');
-
-  if (recentPending) {
-    const recent = open.slice(0, 5);
-
-    recentPending.innerHTML = recent.length
-      ? recent.map(p => `<div class="mini-row">
-          <span>${esc(p.titulo || contractLabel(p.contrato_id))}<small>Prazo: ${dateBR(p.prazo)}</small></span>
-          <strong>${money(p.valor)}</strong>
-        </div>`).join('')
-      : '<p class="muted">Nenhuma pendência em aberto.</p>';
-  }
-
-  renderMonthlyChart();
-  renderStatusChart();
+  renderCharts();
 }
 
-function renderMonthlyChart() {
-  const box = $('#monthlyChart');
-  if (!box) return;
+function renderCharts() {
+  const chart = $("#monthlyChart");
 
-  const now = new Date();
-  const months = [];
+  if (chart) {
+    const months = [];
 
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    for (let offset = 5; offset >= 0; offset--) {
+      const date = new Date();
+      date.setDate(1);
+      date.setMonth(date.getMonth() - offset);
 
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
-    months.push({
-      key,
-      label: d.toLocaleDateString('pt-BR', { month: 'short' }),
-      paid: 0,
-      open: 0
-    });
+      const total = state.payments
+        .filter(item => String(item.competencia || item.data_pagamento || "")
+          .startsWith(key))
+        .reduce((sum, item) => sum + Number(item.valor || 0), 0);
+
+      months.push({
+        label: date.toLocaleDateString("pt-BR", { month: "short" }),
+        total
+      });
+    }
+
+    const max = Math.max(...months.map(item => item.total), 1);
+
+    chart.innerHTML = `
+      <div style="display:flex;align-items:end;gap:12px;height:170px;padding:12px">
+        ${months.map(item => `
+          <div style="flex:1;min-width:0;text-align:center">
+            <div title="${money(item.total)}"
+              style="height:${Math.max(4, item.total / max * 125)}px;
+              background:#3478c8;border-radius:6px 6px 0 0"></div>
+            <small>${escapeHTML(item.label)}</small>
+          </div>
+        `).join("")}
+      </div>`;
   }
 
-  for (const p of state.payments) {
-    const key = String(p.data_pagamento || '').slice(0, 7);
-    const m = months.find(x => x.key === key);
-
-    if (m) m.paid += num(p.valor);
-  }
-
-  for (const p of state.pending) {
-    if (['concluido', 'concluida', 'resolvida', 'resolvido']
-      .includes(String(p.status).toLowerCase())) continue;
-
-    const key = String(p.prazo || p.competencia || '').slice(0, 7);
-    const m = months.find(x => x.key === key);
-
-    if (m) m.open += num(p.valor);
-  }
-
-  const max = Math.max(1, ...months.flatMap(m => [m.paid, m.open]));
-
-  box.innerHTML = months.map(m => `<div class="bar-group" title="${m.key}">
-    <div class="bar-pair">
-      <span class="bar-paid" style="height:${Math.max(2, m.paid / max * 100)}%" title="Pagos: ${money(m.paid)}"></span>
-      <span class="bar-open" style="height:${Math.max(2, m.open / max * 100)}%" title="Pendentes: ${money(m.open)}"></span>
-    </div>
-    <small>${esc(m.label)}</small>
-  </div>`).join('');
-}
-
-function renderStatusChart() {
-  const counts = {
-    'Vigente': 0,
-    'A iniciar': 0,
-    'Encerrado': 0,
-    'Sem vigência': 0
-  };
-
-  state.contracts.forEach(c => counts[contractStatus(c)]++);
-
-  const total = state.contracts.length;
-  const donut = $('#statusDonut');
-  const legend = $('#statusLegend');
+  const donut = $("#statusDonut");
+  const legend = $("#statusLegend");
 
   if (donut) {
-    const parts = Object.entries(counts).filter(([, v]) => v > 0);
-    let cursor = 0;
+    const paid = state.payments.filter(item =>
+      ["pago", "paga", "liquidado", "liquidada"].includes(
+        String(item.status || "").toLowerCase()
+      )
+    ).length;
 
-    const colors = ['#21865a', '#df9c34', '#c64d4d', '#8b78bb'];
+    const unpaid = state.payments.length - paid;
 
-    const stops = parts.map(([k, v]) => {
-      const start = cursor;
-      cursor += total ? v / total * 100 : 0;
+    donut.innerHTML = `
+      <div style="padding:24px;text-align:center">
+        <strong style="font-size:30px">${state.payments.length}</strong>
+        <div>pagamentos</div>
+        <div style="height:10px;display:flex;margin-top:12px;border-radius:9px;overflow:hidden">
+          <div style="width:${state.payments.length ? paid / state.payments.length * 100 : 0}%;background:#18865a"></div>
+          <div style="flex:1;background:#e8a23a"></div>
+        </div>
+      </div>`;
+    if (legend) {
+      legend.innerHTML = `
+        <p>Pagos: ${paid}</p>
+        <p>Pendentes: ${unpaid}</p>`;
+    }
+  }
+}
 
-      return `${colors[Object.keys(counts).indexOf(k)]} ${start}% ${cursor}%`;
-    });
+function renderSuppliers() {
+  const search = ($("#searchSuppliers")?.value || "").toLowerCase();
+  const rows = state.suppliers.filter(item =>
+    `${item.nome || ""} ${item.documento || ""} ${item.email || ""}`
+      .toLowerCase().includes(search)
+  );
 
-    donut.style.background = total
-      ? `conic-gradient(${stops.join(',')})`
-      : '#e5edf2';
+  putText("countSuppliers", `${rows.length} fornecedores`);
 
-    donut.innerHTML = `<span>${total}<small>contratos</small></span>`;
+  putHTML("rowsSuppliers", rows.map(item => `
+    <tr>
+      <td>${escapeHTML(item.nome)}</td>
+      <td>${escapeHTML(item.documento || item.cnpj || "—")}</td>
+      <td>${escapeHTML(item.email || "—")}</td>
+      <td>${escapeHTML(item.telefone || "—")}</td>
+      <td>
+        <button type="button" data-edit-supplier="${escapeHTML(item.id)}">Editar</button>
+        <button type="button" data-delete-supplier="${escapeHTML(item.id)}">Excluir</button>
+      </td>
+    </tr>
+  `).join("") || `<tr><td colspan="5">Nenhum fornecedor encontrado.</td></tr>`);
+}
+
+function renderContracts() {
+  const search = ($("#searchContracts")?.value || "").toLowerCase();
+  const status = $("#filterContractStatus")?.value || "";
+
+  const rows = state.contracts.filter(item => {
+    const searchable = `${item.numero || ""} ${item.objeto || ""} ${item.numero_processo || ""} ${supplierName(item.fornecedor_id)}`.toLowerCase();
+
+    return searchable.includes(search) &&
+      (!status || item.status === status);
+  });
+
+  putText("countContracts", `${rows.length} contratos`);
+
+  putHTML("rowsContracts", rows.map(item => `
+    <tr>
+      <td>${escapeHTML(item.numero || "—")}</td>
+      <td>${escapeHTML(item.objeto || "—")}</td>
+      <td>${escapeHTML(supplierName(item.fornecedor_id))}</td>
+      <td>${money(item.valor)}</td>
+      <td>${dateBR(item.data_inicio)}</td>
+      <td>${dateBR(item.data_fim)}</td>
+      <td>${escapeHTML(item.status || "Ativo")}</td>
+      <td>
+        <button type="button" data-edit-contract="${escapeHTML(item.id)}">Editar</button>
+        <button type="button" data-delete-contract="${escapeHTML(item.id)}">Excluir</button>
+      </td>
+    </tr>
+  `).join("") || `<tr><td colspan="8">Nenhum contrato encontrado.</td></tr>`);
+
+  const select = $("#contractSupplier");
+  if (select) {
+    const current = select.value;
+    select.innerHTML = `<option value="">Selecione um fornecedor</option>` +
+      state.suppliers.map(item =>
+        `<option value="${escapeHTML(item.id)}">${escapeHTML(item.nome)}</option>`
+      ).join("");
+    select.value = current;
   }
 
-  if (legend) {
-    legend.innerHTML = Object.entries(counts)
-      .map(([k, v]) => `<div><span>${esc(k)}</span><strong>${v}</strong></div>`)
-      .join('');
+  const paymentContract = $("#paymentContract");
+  if (paymentContract) {
+    const current = paymentContract.value;
+    paymentContract.innerHTML = `<option value="">Selecione um contrato</option>` +
+      state.contracts.map(item =>
+        `<option value="${escapeHTML(item.id)}">${escapeHTML(item.numero || item.objeto || "Contrato")}</option>`
+      ).join("");
+    paymentContract.value = current;
   }
+
+  const pendingContract = $("#pendingContract");
+  if (pendingContract) {
+    const current = pendingContract.value;
+    pendingContract.innerHTML = `<option value="">Nenhum contrato</option>` +
+      state.contracts.map(item =>
+        `<option value="${escapeHTML(item.id)}">${escapeHTML(item.numero || item.objeto || "Contrato")}</option>`
+      ).join("");
+    pendingContract.value = current;
+  }
+}
+
+function renderPayments() {
+  const search = ($("#searchPayments")?.value || "").toLowerCase();
+  const month = $("#filterPaymentMonth")?.value || "";
+
+  const rows = state.payments.filter(item => {
+    const searchable = `${item.numero_documento || ""} ${item.descricao || ""} ${item.status || ""} ${contractNumber(item.contrato_id)}`.toLowerCase();
+    const date = String(item.competencia || item.data_pagamento || "");
+
+    return searchable.includes(search) && (!month || date.startsWith(month));
+  });
+
+  putText("countPayments", `${rows.length} pagamentos`);
+
+  putHTML("rowsPayments", rows.map(item => `
+    <tr>
+      <td>${escapeHTML(item.numero_documento || "—")}</td>
+      <td>${escapeHTML(contractNumber(item.contrato_id))}</td>
+      <td>${escapeHTML(item.descricao || "—")}</td>
+      <td>${money(item.valor)}</td>
+      <td>${dateBR(item.competencia || item.data_pagamento)}</td>
+      <td>${escapeHTML(item.status || "Pendente")}</td>
+      <td>
+        <button type="button" data-edit-payment="${escapeHTML(item.id)}">Editar</button>
+        <button type="button" data-delete-payment="${escapeHTML(item.id)}">Excluir</button>
+      </td>
+    </tr>
+  `).join("") || `<tr><td colspan="7">Nenhum pagamento encontrado.</td></tr>`);
+}
+
+function renderPending() {
+  const search = ($("#searchPending")?.value || "").toLowerCase();
+  const status = $("#filterPendingStatus")?.value || "";
+
+  const rows = state.pending.filter(item => {
+    const text = `${item.titulo || ""} ${item.descricao || ""} ${item.categoria || ""}`.toLowerCase();
+    return text.includes(search) && (!status || item.status === status);
+  });
+
+  putText("countPending", `${rows.length} pendências`);
+
+  putHTML("pendingCards", rows.map(item => `
+    <article style="border:1px solid #e0e5ec;border-radius:12px;padding:16px;margin:10px 0">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <strong>${escapeHTML(item.titulo || item.descricao || "Pendência")}</strong>
+        <span>${escapeHTML(item.prioridade || "Normal")}</span>
+      </div>
+      <p>${escapeHTML(item.descricao || "")}</p>
+      <p>Status: ${escapeHTML(item.status || "aberta")} · Prazo: ${dateBR(item.prazo)}</p>
+      <button type="button" data-edit-pending="${escapeHTML(item.id)}">Editar</button>
+      <button type="button" data-delete-pending="${escapeHTML(item.id)}">Excluir</button>
+    </article>
+  `).join("") || `<p>Nenhuma pendência encontrada.</p>`);
 }
 
 function renderBudget() {
-  const tbody = $('#rowsBudget');
-
-  const totalPloa = state.contracts.reduce((s, c) => s + num(c.ploa2026), 0);
-
+  const total = state.contracts.reduce((sum, item) => sum + Number(item.valor || 0), 0);
   const paid = state.payments
-    .filter(p => String(p.data_pagamento || '').startsWith('2026'))
-    .reduce((s, p) => s + num(p.valor), 0);
+    .filter(item => ["pago", "paga", "liquidado", "liquidada"].includes(String(item.status || "").toLowerCase()))
+    .reduce((sum, item) => sum + Number(item.valor || 0), 0);
 
-  const percent = totalPloa ? paid / totalPloa * 100 : 0;
+  const percent = total > 0 ? Math.min(100, paid / total * 100) : 0;
 
-  setMessage('budgetPercent', totalPloa
-    ? `${percent.toFixed(1).replace('.', ',')}%`
-    : '—');
+  putText("budgetSummary", `Contratos: ${money(total)} · Pagamentos realizados: ${money(paid)}`);
+  putText("budgetPercent", `${percent.toFixed(1).replace(".", ",")}%`);
+  const bar = $("#budgetBar");
+  if (bar) bar.style.width = `${percent}%`;
 
-  const bar = $('#budgetBar');
+  putHTML("rowsBudget", state.contracts.map(item => {
+    const payments = state.payments
+      .filter(payment => payment.contrato_id === item.id)
+      .reduce((sum, payment) => sum + Number(payment.valor || 0), 0);
 
-  if (bar) {
-    bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  }
-
-  const summary = $('#budgetSummary');
-
-  if (summary) {
-    summary.innerHTML = `
-      <article class="summary-card"><span>PLOA informado</span><strong>${money(totalPloa)}</strong></article>
-      <article class="summary-card"><span>Pago em 2026</span><strong>${money(paid)}</strong></article>
-      <article class="summary-card"><span>Contratos</span><strong>${state.contracts.length}</strong></article>`;
-  }
-
-  if (tbody) {
-    tbody.innerHTML = state.contracts.length
-      ? state.contracts.map(c => {
-        const cp = state.payments
-          .filter(p => p.contrato_id === c.id && String(p.data_pagamento || '').startsWith('2026'))
-          .reduce((s, p) => s + num(p.valor), 0);
-
-        return `<tr>
-          <td>${esc(supplierName(c.fornecedor_id))}<br><small>${esc(c.numero || '')}</small></td>
-          <td>${money(c.totalGasto2025 || 0)}</td>
-          <td>${money(c.ploa2026 || 0)}</td>
-          <td>${money(cp)}</td>
-          <td>${num(c.ploa2026) ? (cp / num(c.ploa2026) * 100).toFixed(1).replace('.', ',') + '%' : '—'}</td>
-          <td>${actionButton('edit-contract', c.id, 'Editar')}</td>
-        </tr>`;
-      }).join('')
-      : emptyRow(6);
-  }
+    return `<tr>
+      <td>${escapeHTML(item.numero || "—")}</td>
+      <td>${escapeHTML(item.objeto || "—")}</td>
+      <td>${money(item.valor)}</td>
+      <td>${money(payments)}</td>
+      <td>${money(Math.max(0, Number(item.valor || 0) - payments))}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5">Nenhum contrato cadastrado.</td></tr>`);
 }
 
-function populateSelects() {
-  const supplierSelect = $('#contractSupplier');
-
-  if (supplierSelect) {
-    const old = supplierSelect.value;
-
-    supplierSelect.innerHTML = '<option value="">Selecione um fornecedor</option>' +
-      state.suppliers.map(s => `<option value="${esc(s.id)}">${esc(s.nome)}</option>`).join('');
-
-    if (old) supplierSelect.value = old;
-  }
-
-  $$('[data-contract-select]').forEach(select => {
-    const old = select.value;
-
-    select.innerHTML = '<option value="">Selecione um contrato</option>' +
-      state.contracts.map(c => `<option value="${esc(c.id)}">${esc(c.numero || 'Sem número')} — ${esc(supplierName(c.fornecedor_id))}</option>`).join('');
-
-    if (old) select.value = old;
-  });
-}
-
-function actionButton(action, id, label, kind = '') {
-  return `<button type="button" class="btn ${kind === 'danger' ? 'subtle' : 'secondary'}" data-action="${action}" data-id="${esc(id)}">${esc(label)}</button> `;
-}
-
-function showView(view) {
-  if (!TITLES[view]) return;
-
-  $$('.view').forEach(section => {
-    section.hidden = section.id !== `view-${view}`;
-  });
-
-  $$('.nav-link').forEach(button => {
-    button.classList.toggle('active', button.dataset.view === view);
-  });
-
-  setMessage('pageTitle', TITLES[view]);
-}
-
-function formObject(form) {
-  const fd = new FormData(form);
-
-  return Object.fromEntries(
-    [...fd.entries()].map(([k, v]) => [
-      k,
-      typeof v === 'string' ? v.trim() : v
-    ])
-  );
-}
-
-function fillForm(form, values = {}) {
-  for (const element of form.elements) {
-    if (!element.name) continue;
-
-    const value = values[element.name];
-    if (value === undefined || value === null) continue;
-
-    element.value = value;
-  }
-}
-
-function numericFields(obj, names) {
-  for (const name of names) {
-    if (obj[name] !== undefined && obj[name] !== '') {
-      obj[name] = num(obj[name]);
-    }
-  }
-}
-
-function openDialog(type, id = null) {
-  requireWrite();
-
-  const form = $(`#${type}Form`);
-  const dialog = $(`#${type}Dialog`);
-
-  if (!form || !dialog) return;
-
-  state.editing[type] = id;
-
-  form.reset();
-  populateSelects();
-
-  const record = id ? ({
-    supplier: state.suppliers.find(x => x.id === id),
-    contract: state.contracts.find(x => x.id === id),
-    payment: state.payments.find(x => x.id === id),
-    pending: state.pending.find(x => x.id === id)
-  })[type] : null;
-
-  if (record) {
-    let values = { ...record };
-
-    if (type === 'supplier') {
-      values = { ...record, cnpj: record.documento || record.cnpj };
-    }
-
-    if (type === 'contract') {
-      values = {
-        ...record,
-        supplier: record.fornecedor_id,
-        processo: record.numero_processo,
-        vigenciaInicial: record.data_inicio,
-        vigenciaFinal: record.data_fim,
-        valorGlobal: record.valor
-      };
-    }
-
-    if (type === 'payment') {
-      values = {
-        ...record,
-        contractId: record.contrato_id,
-        data: record.data_pagamento,
-        competencia: record.competencia ? String(record.competencia).slice(0, 7) : '',
-        notaFiscal: record.numero_documento
-      };
-    }
-
-    if (type === 'pending') {
-      values = {
-        ...record,
-        contractId: record.contrato_id,
-        vencimento: record.prazo,
-        competencia: record.competencia || '',
-        status: record.status === 'concluida' ? 'concluido' : record.status
-      };
-    }
-
-    fillForm(form, values);
-  } else {
-    if (type === 'payment') form.elements.data.value = isoToday();
-
-    if (type === 'pending') {
-      form.elements.competencia.value = isoToday().slice(0, 7);
-      form.elements.status.value = 'aberto';
-    }
-  }
-
-  setMessage(
-    `${type}DialogTitle`,
-    `${record ? 'Editar' : 'Novo'} ${{ supplier: 'fornecedor', contract: 'contrato', payment: 'pagamento', pending: 'pendência' }[type]}`
-  );
-
-  dialog.showModal();
-}
-
-async function saveSupplier(form) {
-  requireWrite();
-
-  const v = formObject(form);
-  const id = state.editing.supplier;
-
-  const row = attachInstitution({
-    nome: v.nome,
-    documento: v.cnpj.replace(/\D/g, '') || null,
-    tipo_documento: 'CNPJ',
-    telefone: v.telefone || null,
-    email: v.email || null,
-    observacoes: v.observacoes || null,
-    ...(id ? {} : { criado_por: state.user.id })
-  });
-
-  delete row.instituicao_id;
-  row.instituicao_id = state.institution.id;
-
-  const result = id
-    ? await supabase.from('suppliers').update(row)
-      .eq('id', id)
-      .eq('instituicao_id', state.institution.id)
-      .select()
-      .single()
-    : await supabase.from('suppliers').insert(row).select().single();
-
-  if (result.error) throw result.error;
-
-  $('#supplierDialog').close();
-
-  await reloadAndRender('Fornecedor salvo com sucesso.');
-}
-
-async function saveContract(form) {
-  requireWrite();
-
-  const v = formObject(form);
-
-  numericFields(v, [
-    'valorGlobal',
-    'custoPosto',
-    'gastoAnual2025',
-    'ploa2026',
-    'postos',
-    'salario',
-    'encargos',
-    'materiais',
-    'gastoMensal2025',
-    'totalGasto2025',
-    'qtdAtual',
-    'qtdAnalise'
-  ]);
-
-  const meta = {};
-
-  for (const key of [
-    'custoPosto',
-    'gastoAnual2025',
-    'ploa2026',
-    'unidade',
-    'tipo',
-    'modalidade',
-    'nd',
-    'gestor',
-    'fiscalAdm',
-    'fiscalTecnico',
-    'suplente',
-    'garantia',
-    'tipoCusto',
-    'categoria',
-    'postos',
-    'salario',
-    'encargos',
-    'materiais',
-    'gastoMensal2025',
-    'totalGasto2025',
-    'qtdAtual',
-    'qtdAnalise'
-  ]) {
-    if (v[key] !== undefined && v[key] !== '') meta[key] = v[key];
-  }
-
-  const id = state.editing.contract;
-
-  const row = {
-    instituicao_id: state.institution.id,
-    fornecedor_id: v.supplier || null,
-    numero: v.numero || '',
-    numero_processo: v.processo || null,
-    objeto: v.objeto || null,
-    valor: num(v.valorGlobal),
-    data_inicio: v.vigenciaInicial || null,
-    data_fim: v.vigenciaFinal || null,
-    status: 'ativo',
-    observacoes: packMeta(v.observacoes, meta),
-    ...(id ? {} : { criado_por: state.user.id })
-  };
-
-  const result = id
-    ? await supabase.from('contracts').update(row)
-      .eq('id', id)
-      .eq('instituicao_id', state.institution.id)
-      .select()
-      .single()
-    : await supabase.from('contracts').insert(row).select().single();
-
-  if (result.error) throw result.error;
-
-  $('#contractDialog').close();
-
-  await reloadAndRender('Contrato salvo com sucesso.');
-}
-
-async function savePayment(form) {
-  requireWrite();
-
-  const v = formObject(form);
-
-  const meta = {
-    empenho: v.empenho || '',
-    processoPagamento: v.processoPagamento || ''
-  };
-
-  const id = state.editing.payment;
-
-  const row = {
-    instituicao_id: state.institution.id,
-    contrato_id: v.contractId,
-    numero_documento: v.notaFiscal || null,
-    descricao: packMeta(v.descricao, meta) || '',
-    valor: num(v.valor),
-    competencia: isoMonth(v.competencia),
-    data_pagamento: v.data || null,
-    status: 'pago',
-    criado_por: state.user.id
-  };
-
-  const result = id
-    ? await supabase.from('pagamentos').update(row)
-      .eq('id', id)
-      .eq('instituicao_id', state.institution.id)
-      .select()
-      .single()
-    : await supabase.from('pagamentos').insert(row).select().single();
-
-  if (result.error) throw result.error;
-
-  $('#paymentDialog').close();
-
-  await reloadAndRender('Pagamento salvo com sucesso.');
-}
-
-async function savePending(form) {
-  requireWrite();
-
-  const v = formObject(form);
-  const id = state.editing.pending;
-  const contract = state.contracts.find(c => c.id === v.contractId);
-
-  const meta = {
-    competencia: v.competencia || '',
-    valor: num(v.valor),
-    referencia: v.referencia || ''
-  };
-
-  const row = {
-    instituicao_id: state.institution.id,
-    contrato_id: v.contractId || null,
-    fornecedor_id: contract?.fornecedor_id || null,
-    titulo: `Pendência — ${contract?.numero || 'Contrato'}`,
-    descricao: packMeta(v.observacoes, meta),
-    categoria: 'financeira',
-    prioridade: 'normal',
-    status: v.status === 'concluido' ? 'concluida' : 'aberta',
-    prazo: v.vencimento || null,
-    resolvida_em: v.status === 'concluido' ? new Date().toISOString() : null,
-    criado_por: state.user.id
-  };
-
-  const result = id
-    ? await supabase.from('pendencias').update(row)
-      .eq('id', id)
-      .eq('instituicao_id', state.institution.id)
-      .select()
-      .single()
-    : await supabase.from('pendencias').insert(row).select().single();
-
-  if (result.error) throw result.error;
-
-  $('#pendingDialog').close();
-
-  await reloadAndRender('Pendência salva com sucesso.');
-}
-
-async function deleteRecord(type, id) {
-  requireWrite();
-
-  const config = {
-    supplier: { table: 'suppliers', label: 'fornecedor' },
-    contract: { table: 'contracts', label: 'contrato' },
-    payment: { table: 'pagamentos', label: 'pagamento' },
-    pending: { table: 'pendencias', label: 'pendência' }
-  }[type];
-
-  if (!config || !confirm(`Excluir este ${config.label}? Esta ação não pode ser desfeita.`)) {
-    return;
-  }
-
-  const { error } = await supabase
-    .from(config.table)
-    .delete()
-    .eq('id', id)
-    .eq('instituicao_id', state.institution.id);
-
-  if (error) throw error;
-
-  await reloadAndRender(`${config.label[0].toUpperCase() + config.label.slice(1)} excluído.`);
-}
-
-async function togglePending(id) {
-  requireWrite();
-
-  const p = state.pending.find(x => x.id === id);
-  if (!p) return;
-
-  const done = p.status !== 'concluido';
-
-  const { error } = await supabase
-    .from('pendencias')
-    .update({
-      status: done ? 'concluida' : 'aberta',
-      resolvida_em: done ? new Date().toISOString() : null
-    })
-    .eq('id', id)
-    .eq('instituicao_id', state.institution.id);
-
-  if (error) throw error;
-
-  await reloadAndRender(done ? 'Pendência concluída.' : 'Pendência reaberta.');
-}
-
-function csvParse(text) {
-  const first = text.split(/\r?\n/, 1)[0] || '';
-
-  const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length
-    ? ';'
-    : ((first.match(/\t/g) || []).length > (first.match(/,/g) || []).length ? '\t' : ',');
-
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let quoted = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    if (ch === '"' && quoted && text[i + 1] === '"') {
-      cell += '"';
-      i++;
-    } else if (ch === '"') {
-      quoted = !quoted;
-    } else if (ch === sep && !quoted) {
-      row.push(cell);
-      cell = '';
-    } else if ((ch === '\n' || ch === '\r') && !quoted) {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-
-      row.push(cell);
-
-      if (row.some(v => String(v).trim() !== '')) rows.push(row);
-
-      row = [];
-      cell = '';
-    } else {
-      cell += ch;
-    }
-  }
-
-  if (cell.length || row.length) {
-    row.push(cell);
-
-    if (row.some(v => String(v).trim() !== '')) rows.push(row);
-  }
-
-  return rows;
-}
-
-function normHeader(s) {
-  return String(s || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function getCell(row, headers, ...names) {
-  const indexes = new Map(headers.map((h, i) => [normHeader(h), i]));
-
-  for (const name of names) {
-    const index = indexes.get(normHeader(name));
-
-    if (index !== undefined) return String(row[index] ?? '').trim();
-  }
-
-  return '';
-}
-
-function parseCsvFile(file) {
-  return file.text().then(text => {
-    const all = csvParse(text);
-
-    if (all.length < 2) {
-      throw new Error('O arquivo precisa ter cabeçalho e pelo menos uma linha.');
-    }
-
-    state.importHeaders = all[0].map(v => String(v).replace(/^\uFEFF/, '').trim());
-
-    state.importRows = all.slice(1).map(values =>
-      Object.fromEntries(state.importHeaders.map((h, i) => [h, values[i] ?? '']))
-    );
-
-    state.importFilename = file.name;
-
-    renderImportPreview();
-  });
-}
-
-function renderImportPreview() {
-  const preview = $('#importPreview');
-  if (!preview) return;
-
-  preview.hidden = false;
-
-  const summary = $('#importSummary');
-
-  if (summary) {
-    summary.innerHTML = `
-      <article class="summary-card"><span>Arquivo</span><strong>${esc(state.importFilename)}</strong></article>
-      <article class="summary-card"><span>Linhas</span><strong>${state.importRows.length}</strong></article>
-      <article class="summary-card"><span>Destino</span><strong>${esc($('#importType')?.value || '')}</strong></article>`;
-  }
-
-  const table = $('#previewTable');
-
-  if (table) {
-    const headers = state.importHeaders.slice(0, 8);
-
-    table.innerHTML = `
-      <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-      <tbody>${state.importRows.slice(0, 12).map(row =>
-        `<tr>${headers.map(h => `<td>${esc(row[h])}</td>`).join('')}</tr>`
-      ).join('')}</tbody>`;
-  }
-
-  setMessage(
-    'importErrors',
-    state.importRows.length > 12
-      ? `Prévia das primeiras 12 linhas de ${state.importRows.length}.`
-      : ''
-  );
-
-  setMessage('importMessage', 'Confira os dados antes de confirmar. A gravação será feita no Supabase.');
-}
-
-async function importRecords() {
-  requireWrite();
-
-  if (!state.importRows.length) {
-    throw new Error('Nenhum registro para importar.');
-  }
-
-  const type = $('#importType').value;
-  const now = new Date().toISOString();
-
-  const importRow = {
-    instituicao_id: state.institution.id,
-    arquivo_nome: state.importFilename || 'importacao.csv',
-    formato: (state.importFilename.split('.').pop() || 'csv').toLowerCase(),
-    sistema_origem: 'Importação manual',
-    modulo_destino: type,
-    status: 'processando',
-    total_linhas: state.importRows.length,
-    criado_por: state.user.id,
-    iniciado_em: now
-  };
-
-  const created = await supabase
-    .from('importacoes')
-    .insert(importRow)
+/* =========================
+   OPERAÇÕES NO SUPABASE
+   ========================= */
+
+async function insertRow(table, payload) {
+  const row = addInstitution(payload);
+  const { data, error } = await supabase
+    .from(table)
+    .insert(row)
     .select()
     .single();
 
-  if (created.error) throw created.error;
+  if (error) throw error;
+  return data;
+}
 
-  let inserted = 0;
-  let rejected = 0;
+async function updateRow(table, id, payload) {
+  const { data, error } = await supabase
+    .from(table)
+    .update(payload)
+    .eq("id", id)
+    .eq("instituicao_id", state.institution.id)
+    .select()
+    .single();
 
-  const errors = [];
+  if (error) throw error;
+  return data;
+}
 
-  for (let index = 0; index < state.importRows.length; index++) {
-    const raw = state.importRows[index];
+async function deleteRow(table, id) {
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .eq("id", id)
+    .eq("instituicao_id", state.institution.id);
 
-    try {
-      const h = Object.keys(raw);
-      let row;
+  if (error) throw error;
+}
 
-      if (type === 'suppliers') {
-        const values = h.map(k => raw[k]);
+async function saveEntity(type, payload) {
+  if (!requireEdit()) return;
 
-        const nome = getCell(values, h, 'nome', 'razao social', 'fornecedor', 'empresa');
+  const table = TABLES[type];
+  const id = state.editing[type];
 
-        if (!nome) throw new Error('Nome/razão social ausente');
+  if (!table) throw new Error("Tipo de registro inválido.");
 
-        row = {
-          instituicao_id: state.institution.id,
-          nome,
-          documento: getCell(values, h, 'cnpj', 'documento').replace(/\D/g, '') || null,
-          tipo_documento: 'CNPJ',
-          email: getCell(values, h, 'email') || null,
-          telefone: getCell(values, h, 'telefone', 'contato') || null,
-          observacoes: getCell(values, h, 'observacoes', 'observações') || null,
-          criado_por: state.user.id
-        };
-      } else if (type === 'contracts') {
-        const values = h.map(k => raw[k]);
+  setBusy(true);
 
-        const numero = getCell(values, h, 'numero', 'numero contrato', 'contrato');
-        const processo = getCell(values, h, 'processo', 'numero processo');
+  try {
+    if (id) {
+      await updateRow(table, id, payload);
+    } else {
+      await insertRow(table, payload);
+    }
 
-        const nomeFornecedor = getCell(
-          values, h, 'fornecedor', 'empresa', 'razao social', 'nome fornecedor'
-        );
+    state.editing[type] = null;
+    await loadAllData();
+    notify("Registro salvo com sucesso.", "success");
+    closeDialog(type);
+  } catch (error) {
+    showError(error, "Não foi possível salvar");
+  } finally {
+    setBusy(false);
+  }
+}
 
-        const supplier = state.suppliers.find(s =>
-          normHeader(s.nome) === normHeader(nomeFornecedor)
-          || normHeader(s.documento) === normHeader(getCell(values, h, 'cnpj'))
-        );
+async function removeEntity(type, id) {
+  if (!requireEdit()) return;
 
-        if (!numero && !processo) {
-          throw new Error('Número do contrato ou processo ausente');
-        }
+  const labels = {
+    supplier: "fornecedor",
+    contract: "contrato",
+    payment: "pagamento",
+    pending: "pendência"
+  };
 
-        row = {
-          instituicao_id: state.institution.id,
-          fornecedor_id: supplier?.id || null,
-          numero: numero || processo,
-          numero_processo: processo || null,
-          objeto: getCell(values, h, 'objeto') || null,
-          valor: num(getCell(values, h, 'valor', 'valor global', 'valorglobal')),
-          data_inicio: getCell(values, h, 'vigencia inicial', 'data inicio', 'inicio') || null,
-          data_fim: getCell(values, h, 'vigencia final', 'data fim', 'fim') || null,
-          status: 'ativo',
-          observacoes: getCell(values, h, 'observacoes', 'observações') || null,
-          criado_por: state.user.id
-        };
-      } else if (type === 'payments') {
-        const values = h.map(k => raw[k]);
+  if (!confirm(`Tem certeza que deseja excluir este registro (${labels[type]})?`)) {
+    return;
+  }
 
-        const proc = getCell(values, h, 'processo', 'numero processo');
-        const numContrato = getCell(values, h, 'contrato', 'numero contrato', 'numero');
+  setBusy(true);
 
-        const contract = state.contracts.find(c =>
-          (proc && normHeader(c.numero_processo) === normHeader(proc))
-          || (numContrato && normHeader(c.numero) === normHeader(numContrato))
-        );
+  try {
+    await deleteRow(TABLES[type], id);
+    await loadAllData();
+    notify("Registro excluído.", "success");
+  } catch (error) {
+    showError(error, "Não foi possível excluir");
+  } finally {
+    setBusy(false);
+  }
+}
 
-        if (!contract) {
-          throw new Error('Contrato não localizado pelo número/processo');
-        }
+/* =========================
+   FORMULÁRIOS
+   ========================= */
 
-        const date = getCell(values, h, 'data', 'data pagamento', 'datapagamento');
+function openDialog(type, item = null) {
+  if (!requireEdit()) return;
 
-        row = {
-          instituicao_id: state.institution.id,
-          contrato_id: contract.id,
-          numero_documento: getCell(values, h, 'nota fiscal', 'nf', 'notafiscal') || null,
-          descricao: getCell(values, h, 'descricao', 'descrição', 'referencia') || '',
-          valor: num(getCell(values, h, 'valor', 'valor pago')),
-          competencia: isoMonth(getCell(values, h, 'competencia')),
-          data_pagamento: date || null,
-          status: 'pago',
-          criado_por: state.user.id
-        };
-      } else {
-        const values = h.map(k => raw[k]);
+  const dialog = $(`#${type}Dialog`);
+  const form = $(`#${type}Form`);
 
-        const proc = getCell(values, h, 'processo', 'numero processo');
-        const numContrato = getCell(values, h, 'contrato', 'numero contrato', 'numero');
+  if (!dialog || !form) {
+    notify(`Janela de ${type} não encontrada no index.html.`, "error");
+    return;
+  }
 
-        const contract = state.contracts.find(c =>
-          (proc && normHeader(c.numero_processo) === normHeader(proc))
-          || (numContrato && normHeader(c.numero) === normHeader(numContrato))
-        );
+  state.editing[type] = item?.id || null;
+  form.reset();
 
-        const title = getCell(values, h, 'titulo', 'pendencia', 'pendência', 'descricao', 'descrição');
+  const title = $(`#${type}DialogTitle`);
+  if (title) title.textContent = item ? "Editar registro" : "Novo registro";
 
-        if (!title && !contract) {
-          throw new Error('Título ou contrato ausente');
-        }
+  const values = {
+    supplier: {
+      supplierName: item?.nome,
+      supplierCnpj: item?.documento || item?.cnpj,
+      supplierEmail: item?.email,
+      supplierPhone: item?.telefone,
+      supplierNotes: item?.observacoes
+    },
+    contract: {
+      contractNumber: item?.numero,
+      contractProcess: item?.numero_processo,
+      contractSupplier: item?.fornecedor_id,
+      contractObject: item?.objeto,
+      contractValue: item?.valor,
+      contractStart: item?.data_inicio,
+      contractEnd: item?.data_fim,
+      contractSource: item?.fonte_recurso,
+      contractNotes: item?.observacoes
+    },
+    payment: {
+      paymentContract: item?.contrato_id,
+      paymentDate: item?.data_pagamento || item?.vencimento,
+      paymentCompetence: item?.competencia,
+      paymentValue: item?.valor,
+      paymentInvoice: item?.numero_documento,
+      paymentDescription: item?.descricao
+    },
+    pending: {
+      pendingContract: item?.contrato_id,
+      pendingReference: item?.titulo,
+      pendingCompetence: item?.competencia,
+      pendingValue: item?.valor,
+      pendingDue: item?.prazo,
+      pendingStatus: item?.status,
+      pendingNotes: item?.descricao
+    }
+  };
 
-        row = {
-          instituicao_id: state.institution.id,
-          contrato_id: contract?.id || null,
-          fornecedor_id: contract?.fornecedor_id || null,
-          titulo: title || `Pendência — ${contract?.numero || 'Contrato'}`,
-          descricao: getCell(values, h, 'observacoes', 'observações')
-            || getCell(values, h, 'descricao', 'descrição')
-            || null,
-          categoria: getCell(values, h, 'categoria') || 'financeira',
-          prioridade: getCell(values, h, 'prioridade') || 'normal',
-          status: getCell(values, h, 'status') || 'aberta',
-          prazo: getCell(values, h, 'prazo', 'vencimento') || null,
-          criado_por: state.user.id
-        };
+  Object.entries(values[type] || {}).forEach(([id, value]) => {
+    const input = $(`#${id}`);
+    if (input && value != null) input.value = value;
+  });
+
+  if (type === "contract") {
+    const status = $("#contractType");
+    if (status && item?.status) status.value = item.status;
+  }
+
+  if (type === "pending") {
+    const status = $("#pendingStatus");
+    if (status && !item) status.value = "aberta";
+  }
+
+  if (typeof dialog.showModal === "function") {
+    if (!dialog.open) dialog.showModal();
+  } else {
+    dialog.style.display = "block";
+  }
+}
+
+function closeDialog(type) {
+  const dialog = $(`#${type}Dialog`);
+  if (!dialog) return;
+
+  if (typeof dialog.close === "function" && dialog.open) {
+    dialog.close();
+  } else {
+    dialog.style.display = "none";
+  }
+}
+
+function formPayload(type) {
+  const value = id => $(`#${id}`)?.value?.trim() ?? "";
+  const numeric = id => {
+    const raw = value(id).replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+    return raw ? Number(raw) : 0;
+  };
+
+  if (type === "supplier") {
+    return {
+      nome: value("supplierName"),
+      documento: value("supplierCnpj") || null,
+      email: value("supplierEmail") || null,
+      telefone: value("supplierPhone") || null,
+      observacoes: value("supplierNotes") || null
+    };
+  }
+
+  if (type === "contract") {
+    return {
+      numero: value("contractNumber"),
+      numero_processo: value("contractProcess") || null,
+      fornecedor_id: value("contractSupplier") || null,
+      objeto: value("contractObject"),
+      valor: numeric("contractValue"),
+      data_inicio: value("contractStart") || null,
+      data_fim: value("contractEnd") || null,
+      status: value("contractType") || "ativo",
+      fonte_recurso: value("contractSource") || null,
+      observacoes: value("contractNotes") || null
+    };
+  }
+
+  if (type === "payment") {
+    return {
+      contrato_id: value("paymentContract") || null,
+      data_pagamento: value("paymentDate") || null,
+      competencia: value("paymentCompetence") || null,
+      valor: numeric("paymentValue"),
+      numero_documento: value("paymentInvoice") || null,
+      descricao: value("paymentDescription") || null,
+      status: value("paymentDate") ? "pago" : "pendente"
+    };
+  }
+
+  if (type === "pending") {
+    return {
+      contrato_id: value("pendingContract") || null,
+      titulo: value("pendingReference") || "Pendência",
+      competencia: value("pendingCompetence") || null,
+      valor: numeric("pendingValue"),
+      prazo: value("pendingDue") || null,
+      status: value("pendingStatus") || "aberta",
+      descricao: value("pendingNotes") || null
+    };
+  }
+
+  throw new Error("Formulário desconhecido.");
+}
+
+function bindForms() {
+  ["supplier", "contract", "payment", "pending"].forEach(type => {
+    const form = $(`#${type}Form`);
+    if (!form || form.dataset.bound) return;
+
+    form.dataset.bound = "1";
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      try {
+        await saveEntity(type, formPayload(type));
+      } catch (error) {
+        showError(error, "Erro no formulário");
       }
+    });
+  });
+}
 
-      const result = await supabase.from(TABLES[type]).insert(row);
+/* =========================
+   NAVEGAÇÃO
+   ========================= */
 
-      if (result.error) throw result.error;
+function navigate(view) {
+  if (!view) return;
 
-      inserted++;
-    } catch (error) {
-      rejected++;
+  const normalized = view.replace(/^view-/, "");
 
-      errors.push({
-        linha: index + 2,
-        erro: error.message || String(error)
-      });
+  $$("[id^='view-']").forEach(section => {
+    section.hidden = section.id !== `view-${normalized}`;
+  });
+
+  $$("[data-view]").forEach(button => {
+    const active = button.dataset.view === normalized;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+
+  const titles = {
+    dashboard: "Painel",
+    contracts: "Contratos",
+    payments: "Pagamentos",
+    pending: "Pendências",
+    budget: "Orçamento",
+    suppliers: "Fornecedores",
+    files: "Importação e exportação",
+    documents: "Documentos",
+    settings: "Configurações"
+  };
+
+  putText("pageTitle", titles[normalized] || "Controle Financeiro SUREGPA");
+}
+
+function bindNavigation() {
+  document.addEventListener("click", event => {
+    const nav = event.target.closest("[data-view]");
+
+    if (nav) {
+      event.preventDefault();
+      navigate(nav.dataset.view);
+      return;
+    }
+
+    const close = event.target.closest("[data-close]");
+    if (close) {
+      const id = close.dataset.close;
+      const dialog = document.getElementById(id);
+      if (dialog?.close) dialog.close();
+      else if (dialog) dialog.style.display = "none";
+    }
+  });
+}
+
+/* =========================
+   CLIQUES DE EDIÇÃO / EXCLUSÃO
+   ========================= */
+
+function bindActions() {
+  document.addEventListener("click", event => {
+    const button = event.target.closest("button");
+    if (!button) return;
+
+    const actions = [
+      ["edit-supplier", "supplier", state.suppliers],
+      ["edit-contract", "contract", state.contracts],
+      ["edit-payment", "payment", state.payments],
+      ["edit-pending", "pending", state.pending]
+    ];
+
+    for (const [attribute, type, collection] of actions) {
+      const id = button.dataset[attribute];
+
+      if (id) {
+        const item = collection.find(row => row.id === id);
+        if (item) openDialog(type, item);
+        return;
+      }
+    }
+
+    const deletions = [
+      ["delete-supplier", "supplier"],
+      ["delete-contract", "contract"],
+      ["delete-payment", "payment"],
+      ["delete-pending", "pending"]
+    ];
+
+    for (const [attribute, type] of deletions) {
+      const id = button.dataset[attribute];
+
+      if (id) {
+        removeEntity(type, id);
+        return;
+      }
+    }
+
+    const action = button.dataset.action;
+
+    if (action === "new-supplier") openDialog("supplier");
+    if (action === "new-contract") openDialog("contract");
+    if (action === "new-payment") openDialog("payment");
+    if (action === "new-pending") openDialog("pending");
+  });
+
+  [
+    ["searchSuppliers", renderSuppliers],
+    ["searchContracts", renderContracts],
+    ["filterContractStatus", renderContracts],
+    ["searchPayments", renderPayments],
+    ["filterPaymentMonth", renderPayments],
+    ["searchPending", renderPending],
+    ["filterPendingStatus", renderPending]
+  ].forEach(([id, handler]) => {
+    const input = $(`#${id}`);
+    if (input) input.addEventListener("input", handler);
+    if (input && input.tagName === "SELECT") {
+      input.addEventListener("change", handler);
+    }
+  });
+
+  $("#clearPaymentFilters")?.addEventListener("click", () => {
+    if ($("#searchPayments")) $("#searchPayments").value = "";
+    if ($("#filterPaymentMonth")) $("#filterPaymentMonth").value = "";
+    renderPayments();
+  });
+
+  $("#refreshDataButton")?.addEventListener("click", loadAllData);
+
+  $$("[id='backupButton']").forEach(button => {
+    button.addEventListener("click", exportBackup);
+  });
+
+  $("#restoreButton")?.addEventListener("click", () => $("#restoreFile")?.click());
+  $("#restoreFile")?.addEventListener("change", restoreBackup);
+
+  $("#cancelImport")?.addEventListener("click", () => {
+    $("#csvFile").value = "";
+    putText("importMessage", "Importação cancelada.");
+    putHTML("previewTable", "");
+  });
+
+  $("#chooseCsv")?.addEventListener("click", () => $("#csvFile")?.click());
+
+  $("#csvDropzone")?.addEventListener("click", event => {
+    if (!event.target.closest("button")) $("#csvFile")?.click();
+  });
+
+  $("#csvFile")?.addEventListener("change", handleImportFile);
+
+  $$("[data-template]").forEach(button => {
+    button.addEventListener("click", () => downloadTemplate(button.dataset.template));
+  });
+}
+
+/* =========================
+   CSV: IMPORTAÇÃO E EXPORTAÇÃO
+   ========================= */
+
+function parseCSV(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  const semicolonCount = (firstLine.match(/;/g) || []).length;
+  const commaCount = (firstLine.match(/,/g) || []).length;
+  const delimiter = semicolonCount > commaCount ? ";" : ",";
+
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      i++;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === delimiter && !quoted) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") i++;
+      row.push(cell);
+      if (row.some(value => value.trim() !== "")) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
     }
   }
 
-  const status = rejected
-    ? (inserted ? 'parcial' : 'falhou')
-    : 'concluida';
+  row.push(cell);
+  if (row.some(value => value.trim() !== "")) rows.push(row);
 
-  const update = await supabase
-    .from('importacoes')
-    .update({
-      status,
-      total_linhas: state.importRows.length,
-      linhas_importadas: inserted,
-      linhas_rejeitadas: rejected,
-      resumo: {
-        destino: type,
-        arquivo: state.importFilename
-      },
-      erros: errors,
-      finalizado_em: new Date().toISOString()
-    })
-    .eq('id', created.data.id)
-    .eq('instituicao_id', state.institution.id);
+  if (!rows.length) return [];
 
-  if (update.error) throw update.error;
-
-  await reloadAndRender(`Importação concluída: ${inserted} gravados, ${rejected} rejeitados.`);
-
-  setMessage(
-    'importErrors',
-    errors.slice(0, 30).map(e => `Linha ${e.linha}: ${e.erro}`).join('\n') || 'Nenhum erro.'
+  const headers = rows.shift().map(value =>
+    value.replace(/^\uFEFF/, "").trim()
   );
 
-  setMessage('importMessage', `Importação: ${inserted} gravados e ${rejected} rejeitados.`);
-
-  $('#importPreview').hidden = true;
-
-  state.importRows = [];
-  state.importHeaders = [];
+  return rows.map(values => {
+    const item = {};
+    headers.forEach((header, index) => {
+      item[header] = (values[index] || "").trim();
+    });
+    return item;
+  });
 }
 
-function downloadText(name, text, type = 'text/plain;charset=utf-8') {
-  const blob = new Blob(['\ufeff', text], { type });
+function normalizeHeader(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getValue(row, candidates) {
+  const entries = Object.entries(row);
+  for (const candidate of candidates) {
+    const key = normalizeHeader(candidate);
+    const entry = entries.find(([header]) => normalizeHeader(header) === key);
+    if (entry && entry[1] !== "") return entry[1];
+  }
+  return "";
+}
+
+function parseMoney(value) {
+  if (typeof value === "number") return value;
+
+  let text = String(value || "").trim().replace(/[R$\s]/g, "");
+  if (!text) return 0;
+
+  if (text.includes(",")) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  }
+
+  const number = Number(text);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+
+  return null;
+}
+
+function detectImportType(rows) {
+  const requested = $("#importType")?.value;
+  if (requested && requested !== "auto") return requested;
+
+  const headers = Object.keys(rows[0] || {}).map(normalizeHeader).join(" ");
+
+  if (headers.includes("fornecedor") || headers.includes("cnpj")) {
+    if (headers.includes("numero") && headers.includes("objeto")) return "contracts";
+    return "suppliers";
+  }
+
+  if (headers.includes("competencia") || headers.includes("datapagamento") ||
+      headers.includes("numerodocumento")) return "payments";
+
+  if (headers.includes("pendencia") || headers.includes("prioridade")) return "pending";
+
+  if (headers.includes("objeto") && headers.includes("valor")) return "contracts";
+
+  return "unknown";
+}
+
+function mapImportRow(type, row) {
+  if (type === "suppliers") {
+    return {
+      nome: getValue(row, ["nome", "fornecedor", "razao social", "empresa"]),
+      documento: getValue(row, ["cnpj", "cpf", "documento"]) || null,
+      email: getValue(row, ["email", "e-mail"]) || null,
+      telefone: getValue(row, ["telefone", "celular", "fone"]) || null
+    };
+  }
+
+  if (type === "contracts") {
+    const supplierText = getValue(row, ["fornecedor", "nome fornecedor"]);
+    const supplier = state.suppliers.find(item =>
+      normalizeHeader(item.nome) === normalizeHeader(supplierText)
+    );
+
+    return {
+      numero: getValue(row, ["numero", "numero contrato", "contrato"]),
+      numero_processo: getValue(row, ["processo", "numero processo"]) || null,
+      fornecedor_id: supplier?.id || null,
+      objeto: getValue(row, ["objeto", "descricao", "descricao contrato"]),
+      valor: parseMoney(getValue(row, ["valor", "valor contrato", "valor total"])),
+      data_inicio: parseDate(getValue(row, ["data inicio", "inicio", "vigencia inicial"])),
+      data_fim: parseDate(getValue(row, ["data fim", "fim", "vigencia final"])),
+      status: getValue(row, ["status"]) || "ativo",
+      fonte_recurso: getValue(row, ["fonte", "fonte recurso"]) || null
+    };
+  }
+
+  if (type === "payments") {
+    const number = getValue(row, ["numero contrato", "contrato"]);
+    const contract = state.contracts.find(item =>
+      normalizeHeader(item.numero) === normalizeHeader(number)
+    );
+
+    return {
+      contrato_id: contract?.id || null,
+      numero_documento: getValue(row, ["documento", "nota fiscal", "numero documento"]) || null,
+      descricao: getValue(row, ["descricao", "historico", "objeto"]) || null,
+      valor: parseMoney(getValue(row, ["valor", "valor pagamento"])),
+      competencia: parseDate(getValue(row, ["competencia", "data competencia"])),
+      data_pagamento: parseDate(getValue(row, ["data pagamento", "pagamento"])) || null,
+      vencimento: parseDate(getValue(row, ["vencimento", "data vencimento"])) || null,
+      status: getValue(row, ["status"]) || "pendente"
+    };
+  }
+
+  if (type === "pending") {
+    return {
+      titulo: getValue(row, ["titulo", "pendencia", "assunto"]) || "Pendência importada",
+      descricao: getValue(row, ["descricao", "observacoes", "detalhes"]) || null,
+      categoria: getValue(row, ["categoria", "tipo"]) || null,
+      prioridade: getValue(row, ["prioridade"]) || "normal",
+      status: getValue(row, ["status"]) || "aberta",
+      prazo: parseDate(getValue(row, ["prazo", "data limite"])) || null
+    };
+  }
+
+  throw new Error("Não consegui identificar o tipo de planilha.");
+}
+
+let pendingImport = null;
+
+async function handleImportFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  try {
+    let rows;
+
+    if (/\.csv$/i.test(file.name)) {
+      rows = parseCSV(await file.text());
+    } else if (/\.xlsx?$/i.test(file.name)) {
+      const XLSX = await import("https://esm.sh/xlsx@0.18.5");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+        defval: ""
+      });
+    } else {
+      throw new Error("Formato não suportado. Use CSV, XLS ou XLSX.");
+    }
+
+    if (!rows.length) throw new Error("O arquivo não contém linhas de dados.");
+
+    const type = detectImportType(rows);
+
+    if (!TABLES[type]) {
+      throw new Error(
+        "Não consegui identificar se a planilha contém fornecedores, contratos, pagamentos ou pendências. " +
+        "Selecione o tipo de importação antes de enviar."
+      );
+    }
+
+    const mapped = rows.map(row => mapImportRow(type, row));
+
+    pendingImport = {
+      file,
+      type,
+      rows: mapped
+    };
+
+    putText("importMessage",
+      `${file.name}: ${mapped.length} linhas identificadas como ${type}. Confira a prévia antes de confirmar.`
+    );
+
+    putHTML("importSummary",
+      `<p>Arquivo: ${escapeHTML(file.name)}</p>
+       <p>Tipo identificado: ${escapeHTML(type)}</p>
+       <p>Linhas: ${mapped.length}</p>`
+    );
+
+    const preview = mapped.slice(0, 10);
+
+    putHTML("previewTable", preview.length ? `
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>${Object.keys(preview[0]).map(key =>
+          `<th style="text-align:left;padding:8px">${escapeHTML(key)}</th>`
+        ).join("")}</tr></thead>
+        <tbody>${preview.map(row =>
+          `<tr>${Object.values(row).map(value =>
+            `<td style="padding:8px;border-top:1px solid #ddd">${escapeHTML(value ?? "")}</td>`
+          ).join("")}</tr>`
+        ).join("")}</tbody>
+      </table>` : "");
+
+    const confirmButton = $("#confirmImport");
+    if (confirmButton) confirmButton.disabled = false;
+  } catch (error) {
+    pendingImport = null;
+    showError(error, "Falha na leitura da planilha");
+    putText("importMessage", error.message || "Erro na importação.");
+  }
+}
+
+$("#confirmImport")?.addEventListener("click", async () => {
+  if (!pendingImport || !requireEdit()) return;
+
+  const { file, type, rows } = pendingImport;
+
+  if (!confirm(`Importar ${rows.length} registros para ${type}?`)) return;
+
+  setBusy(true);
+  const errors = [];
+  let imported = 0;
+
+  try {
+    for (let index = 0; index < rows.length; index++) {
+      try {
+        const row = rows[index];
+
+        if (type === "suppliers" && !row.nome) {
+          throw new Error("Nome do fornecedor vazio.");
+        }
+
+        if (type === "contracts" && !row.numero && !row.objeto) {
+          throw new Error("Contrato sem número e sem objeto.");
+        }
+
+        await insertRow(TABLES[type], row);
+        imported++;
+      } catch (error) {
+        errors.push(`Linha ${index + 2}: ${error.message || error}`);
+      }
+    }
+
+    try {
+      await supabase.from("importacoes").insert(addInstitution({
+        arquivo_nome: file.name,
+        formato: file.name.split(".").pop().toLowerCase(),
+        sistema_origem: "Importação manual",
+        modulo_destino: type,
+        status: errors.length ? "parcial" : "concluida",
+        total_linhas: rows.length,
+        linhas_importadas: imported,
+        linhas_rejeitadas: errors.length,
+        resumo: { tipo: type },
+        erros: errors,
+        finalizado_em: new Date().toISOString()
+      }));
+    } catch (logError) {
+      console.warn("Registro de auditoria de importação não disponível:", logError);
+    }
+
+    await loadAllData();
+
+    putText("importMessage",
+      `Importação concluída: ${imported} importados, ${errors.length} rejeitados.`
+    );
+
+    putHTML("importErrors", errors.length
+      ? `<h3>Linhas rejeitadas</h3><ul>${errors.map(error =>
+        `<li>${escapeHTML(error)}</li>`
+      ).join("")}</ul>`
+      : "");
+
+    notify(`Importação concluída: ${imported} registros inseridos.`, "success");
+    pendingImport = null;
+  } catch (error) {
+    showError(error, "Falha na importação");
+  } finally {
+    setBusy(false);
+  }
+});
+
+function downloadFile(filename, content, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-
-  const a = document.createElement('a');
-
-  a.href = url;
-  a.download = name;
-  a.click();
-
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function exportCsv(type) {
-  const rows = ({
-    suppliers: state.suppliers.map(s => ({
-      nome: s.nome,
-      cnpj: s.documento || s.cnpj,
-      email: s.email,
-      telefone: s.telefone,
-      observacoes: s.observacoes
-    })),
+function toCSV(rows) {
+  if (!rows.length) return "";
 
-    contracts: state.contracts.map(c => ({
-      numero: c.numero,
-      processo: c.numero_processo,
-      fornecedor: supplierName(c.fornecedor_id),
-      objeto: c.objeto,
-      valor: c.valor,
-      data_inicio: c.data_inicio,
-      data_fim: c.data_fim,
-      observacoes: c.observacoes
-    })),
+  const headers = [...new Set(rows.flatMap(row => Object.keys(row)))];
 
-    payments: state.payments.map(p => ({
-      contrato: contractLabel(p.contrato_id),
-      data: p.data_pagamento,
-      competencia: p.competencia,
-      notaFiscal: p.numero_documento,
-      valor: p.valor,
-      descricao: p.descricao
-    })),
+  const escapeCell = value => {
+    const text = value == null ? "" :
+      typeof value === "object" ? JSON.stringify(value) : String(value);
 
-    pendencias: state.pending.map(p => ({
-      titulo: p.titulo,
-      contrato: contractLabel(p.contrato_id),
-      prazo: p.prazo,
-      status: p.status,
-      valor: p.valor,
-      observacoes: p.observacoes
-    }))
-  })[type] || [];
+    return `"${text.replace(/"/g, '""')}"`;
+  };
 
-  const headers = rows.length
-    ? Object.keys(rows[0])
-    : ({
-      suppliers: ['nome', 'cnpj', 'email', 'telefone', 'observacoes'],
-      contracts: ['numero', 'processo', 'fornecedor', 'objeto', 'valor', 'data_inicio', 'data_fim'],
-      payments: ['contrato', 'data', 'competencia', 'notaFiscal', 'valor', 'descricao'],
-      pendencias: ['titulo', 'contrato', 'prazo', 'status', 'valor', 'observacoes']
-    })[type];
-
-  const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-
-  const text = [
-    headers.map(csvCell).join(';'),
-    ...rows.map(r => headers.map(h => csvCell(r[h])).join(';'))
-  ].join('\r\n');
-
-  downloadText(
-    `caf-suregpa-${type}-${isoToday()}.csv`,
-    text,
-    'text/csv;charset=utf-8'
-  );
+  return [
+    headers.map(escapeCell).join(";"),
+    ...rows.map(row => headers.map(header => escapeCell(row[header])).join(";"))
+  ].join("\r\n");
 }
 
 function downloadTemplate(type) {
   const templates = {
-    suppliers: 'nome;cnpj;email;telefone;observacoes\nEmpresa Exemplo;00000000000100;contato@example.com;51999999999;',
-    contracts: 'numero;processo;fornecedor;objeto;valor;data_inicio;data_fim;observacoes\n001/2026;00000.000000/2026-00;Empresa Exemplo;Serviço de exemplo;1000;2026-01-01;2026-12-31;',
-    payments: 'contrato;data;competencia;notaFiscal;valor;descricao\n001/2026;2026-02-10;2026-01;NF-001;100;Pagamento exemplo',
-    pendencias: 'titulo;contrato;prazo;status;observacoes\nConferir documento;001/2026;2026-03-10;aberta;Exemplo'
+    suppliers: [{ nome: "Fornecedor exemplo", cnpj: "00000000000000", email: "exemplo@email.com", telefone: "" }],
+    contracts: [{ numero: "001/2026", processo: "00000.000000/2026-00", fornecedor: "Fornecedor exemplo", objeto: "Descrição do contrato", valor: "1000,00", "data inicio": "01/01/2026", "data fim": "31/12/2026", status: "ativo" }],
+    payments: [{ "numero contrato": "001/2026", documento: "NF-001", descricao: "Pagamento exemplo", valor: "100,00", competencia: "01/10/2026", "data pagamento": "", status: "pendente" }],
+    pending: [{ titulo: "Pendência exemplo", descricao: "Descrição", prioridade: "normal", status: "aberta", prazo: "31/10/2026" }]
   };
 
-  downloadText(
-    `modelo-${type}.csv`,
-    templates[type] || '',
-    'text/csv;charset=utf-8'
-  );
-}
-
-async function restoreBackup(file) {
-  requireWrite();
-
-  const data = JSON.parse(await file.text());
-
-  if (!data || typeof data !== 'object') {
-    throw new Error('Backup inválido.');
-  }
-
-  if (!confirm('Restaurar este backup? Registros com o mesmo ID serão atualizados; outros serão adicionados.')) {
+  const rows = templates[type];
+  if (!rows) {
+    notify("Modelo de planilha desconhecido.", "error");
     return;
   }
 
-  const mapping = [
-    [
-      'suppliers',
-      data.suppliers,
-      items => items.map(s => ({
-        id: s.id,
-        instituicao_id: state.institution.id,
-        nome: s.nome,
-        documento: s.documento || s.cnpj || null,
-        tipo_documento: s.tipo_documento || 'CNPJ',
-        email: s.email || null,
-        telefone: s.telefone || null,
-        observacoes: s.observacoes || null
-      }))
-    ],
-    [
-      'contracts',
-      data.contracts,
-      items => items.map(c => ({
-        id: c.id,
-        instituicao_id: state.institution.id,
-        fornecedor_id: c.fornecedor_id || c.supplier || null,
-        numero: c.numero || '',
-        numero_processo: c.numero_processo || c.processo || null,
-        objeto: c.objeto || null,
-        valor: num(c.valor ?? c.valorGlobal),
-        data_inicio: c.data_inicio || c.vigenciaInicial || null,
-        data_fim: c.data_fim || c.vigenciaFinal || null,
-        status: 'ativo',
-        observacoes: c.observacoes || null
-      }))
-    ],
-    [
-      'pagamentos',
-      data.payments,
-      items => items.map(p => ({
-        id: p.id,
-        instituicao_id: state.institution.id,
-        contrato_id: p.contrato_id || p.contractId,
-        numero_documento: p.numero_documento || p.notaFiscal || null,
-        descricao: p.descricao || '',
-        valor: num(p.valor),
-        competencia: isoMonth(p.competencia),
-        data_pagamento: p.data_pagamento || p.data || null,
-        status: 'pago'
-      }))
-    ],
-    [
-      'pendencias',
-      data.pending || data.pendencias,
-      items => items.map(p => ({
-        id: p.id,
-        instituicao_id: state.institution.id,
-        contrato_id: p.contrato_id || p.contractId || null,
-        titulo: p.titulo || 'Pendência importada',
-        descricao: p.descricao || p.observacoes || null,
-        categoria: p.categoria || 'financeira',
-        prioridade: p.prioridade || 'normal',
-        status: p.status || 'aberta',
-        prazo: p.prazo || p.vencimento || null
-      }))
-    ]
-  ];
-
-  for (const [table, source, mapper] of mapping) {
-    if (!Array.isArray(source) || !source.length) continue;
-
-    const rows = mapper(source).filter(r => r.id);
-
-    if (!rows.length) continue;
-
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'id' });
-
-    if (error) throw error;
-  }
-
-  await reloadAndRender('Backup restaurado.');
+  downloadFile(`modelo-${type}.csv`, "\uFEFF" + toCSV(rows), "text/csv;charset=utf-8");
 }
 
-function updateCct() {
-  const form = $('#contractForm');
-  if (!form) return;
-
-  const salary = num(form.elements.salario?.value);
-  const charges = num(form.elements.encargos?.value);
-  const posts = num(form.elements.postos?.value);
-  const materials = num(form.elements.materiais?.value);
-
-  const estimate = salary * (1 + charges / 100) * posts + materials;
-
-  const el = $('#cctEstimate');
-  if (el) el.value = money(estimate);
-}
-
-async function handleAction(button) {
-  const { action, id } = button.dataset;
-
-  if (action === 'new-supplier') return openDialog('supplier');
-  if (action === 'new-contract') return openDialog('contract');
-  if (action === 'new-payment') return openDialog('payment');
-  if (action === 'new-pending') return openDialog('pending');
-
-  if (action === 'edit-supplier') return openDialog('supplier', id);
-  if (action === 'edit-contract') return openDialog('contract', id);
-  if (action === 'edit-payment') return openDialog('payment', id);
-  if (action === 'edit-pending') return openDialog('pending', id);
-
-  if (action === 'delete-supplier') return deleteRecord('supplier', id);
-  if (action === 'delete-contract') return deleteRecord('contract', id);
-  if (action === 'delete-payment') return deleteRecord('payment', id);
-  if (action === 'delete-pending') return deleteRecord('pending', id);
-
-  if (action === 'toggle-pending') return togglePending(id);
-}
-
-function wireEvents() {
-  document.addEventListener('click', async event => {
-    const viewBtn = event.target.closest('[data-view]');
-
-    if (viewBtn) {
-      showView(viewBtn.dataset.view);
-      return;
+function exportBackup() {
+  const backup = {
+    application: "Controle Financeiro SUREGPA",
+    exportedAt: new Date().toISOString(),
+    institution: state.institution?.id,
+    data: {
+      suppliers: state.suppliers,
+      contracts: state.contracts,
+      payments: state.payments,
+      pending: state.pending
     }
-
-    const close = event.target.closest('[data-close]');
-
-    if (close) {
-      document.getElementById(close.dataset.close)?.close();
-      return;
-    }
-
-    const action = event.target.closest('[data-action]');
-
-    if (action) {
-      try {
-        await handleAction(action);
-      } catch (error) {
-        fail(error, 'Não foi possível executar a ação');
-      }
-
-      return;
-    }
-
-    const exportBtn = event.target.closest('[data-export]');
-
-    if (exportBtn) {
-      exportCsv(exportBtn.dataset.export);
-      return;
-    }
-
-    const templateBtn = event.target.closest('[data-template]');
-
-    if (templateBtn) {
-      downloadTemplate(templateBtn.dataset.template);
-      return;
-    }
-  });
-
-  $('#supplierForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-
-    try {
-      await saveSupplier(e.currentTarget);
-    } catch (err) {
-      fail(err, 'Erro ao salvar fornecedor');
-    }
-  });
-
-  $('#contractForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-
-    try {
-      await saveContract(e.currentTarget);
-    } catch (err) {
-      fail(err, 'Erro ao salvar contrato');
-    }
-  });
-
-  $('#paymentForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-
-    try {
-      await savePayment(e.currentTarget);
-    } catch (err) {
-      fail(err, 'Erro ao salvar pagamento');
-    }
-  });
-
-  $('#pendingForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-
-    try {
-      await savePending(e.currentTarget);
-    } catch (err) {
-      fail(err, 'Erro ao salvar pendência');
-    }
-  });
-
-  [
-    'searchSuppliers',
-    'searchContracts',
-    'searchPayments',
-    'searchPending',
-    'filterContractStatus',
-    'filterPaymentMonth',
-    'filterPendingStatus'
-  ].forEach(id => {
-    document.getElementById(id)?.addEventListener('input', renderAll);
-    document.getElementById(id)?.addEventListener('change', renderAll);
-  });
-
-  $('#clearPaymentFilters')?.addEventListener('click', () => {
-    $('#searchPayments').value = '';
-    $('#filterPaymentMonth').value = '';
-    renderPayments();
-  });
-
-  $('#contractForm')?.addEventListener('input', updateCct);
-
-  $('#chooseCsv')?.addEventListener('click', () => $('#csvFile')?.click());
-  $('#csvDropzone')?.addEventListener('click', () => $('#csvFile')?.click());
-
-  $('#csvDropzone')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      $('#csvFile')?.click();
-    }
-  });
-
-  $('#csvDropzone')?.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.currentTarget.classList.add('dragover');
-  });
-
-  $('#csvDropzone')?.addEventListener('dragleave', e => {
-    e.currentTarget.classList.remove('dragover');
-  });
-
-  $('#csvDropzone')?.addEventListener('drop', e => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('dragover');
-
-    const f = e.dataTransfer.files[0];
-    if (f) handleCsv(f);
-  });
-
-  $('#csvFile')?.addEventListener('change', e => {
-    if (e.target.files[0]) handleCsv(e.target.files[0]);
-  });
-
-  $('#cancelImport')?.addEventListener('click', () => {
-    $('#importPreview').hidden = true;
-    state.importRows = [];
-  });
-
-  $('#confirmImport')?.addEventListener('click', async () => {
-    const b = $('#confirmImport');
-    b.disabled = true;
-
-    try {
-      await importRecords();
-    } catch (e) {
-      fail(e, 'Falha na importação');
-    } finally {
-      b.disabled = false;
-    }
-  });
-
-  $('#backupButton')?.addEventListener('click', () => {
-    downloadText(
-      `backup-caf-suregpa-${isoToday()}.json`,
-      JSON.stringify({
-        exportadoEm: new Date().toISOString(),
-        instituicao: state.institution,
-        suppliers: state.suppliers,
-        contracts: state.contracts,
-        payments: state.payments,
-        pending: state.pending
-      }, null, 2),
-      'application/json'
-    );
-  });
-
-  $('#restoreButton')?.addEventListener('click', () => $('#restoreFile')?.click());
-
-  $('#restoreFile')?.addEventListener('change', async e => {
-    const f = e.target.files[0];
-    if (!f) return;
-
-    try {
-      await restoreBackup(f);
-    } catch (err) {
-      fail(err, 'Falha ao restaurar backup');
-    } finally {
-      e.target.value = '';
-    }
-  });
-
-  $('#docsChoose')?.addEventListener('click', () => $('#docsFile')?.click());
-  $('#docsDropzone')?.addEventListener('click', () => $('#docsFile')?.click());
-
-  $('#docsDropzone')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      $('#docsFile')?.click();
-    }
-  });
-
-  $('#docsDropzone')?.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.currentTarget.classList.add('dragover');
-  });
-
-  $('#docsDropzone')?.addEventListener('dragleave', e => {
-    e.currentTarget.classList.remove('dragover');
-  });
-
-  $('#docsDropzone')?.addEventListener('drop', e => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('dragover');
-
-    const f = e.dataTransfer.files[0];
-    if (f) handleDocument(f);
-  });
-
-  $('#docsFile')?.addEventListener('change', e => {
-    if (e.target.files[0]) handleDocument(e.target.files[0]);
-  });
-
-  $('#docsClear')?.addEventListener('click', clearDocument);
-
-  $('#docsToImporter')?.addEventListener('click', () => {
-    const rows = state.docsWorkbook?.rows;
-
-    if (!rows?.length) return notify('Não há tabela para importar.');
-
-    const headers = rows[0].map((v, i) => String(v || `coluna_${i + 1}`));
-
-    state.importHeaders = headers;
-
-    state.importRows = rows
-      .slice(1)
-      .filter(r => r.some(v => String(v ?? '').trim()))
-      .map(r => Object.fromEntries(
-        headers.map((h, i) => [h, String(r[i] ?? '')])
-      ));
-
-    state.importFilename = state.docsWorkbook.filename;
-    $('#importType').value = $('#docsTarget').value;
-
-    renderImportPreview();
-    showView('files');
-  });
-
-  $('#docsCopy')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText($('#docsText').value);
-      notify('Texto copiado.');
-    } catch (e) {
-      fail(e, 'Não foi possível copiar');
-    }
-  });
-
-  $('#docsExportText')?.addEventListener('click', () => {
-    downloadText('texto-extraido.txt', $('#docsText').value);
-  });
-
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT') {
-      state.user = null;
-      state.institution = null;
-      state.role = null;
-      showLogin();
-    }
-
-    if (event === 'SIGNED_IN' && session?.user) {
-      state.user = session.user;
-      initialize();
-    }
-  });
-}
-
-async function handleCsv(file) {
-  try {
-    if (!/\.(csv|txt)$/i.test(file.name)) {
-      throw new Error('Selecione um arquivo CSV ou TXT tabular.');
-    }
-
-    await parseCsvFile(file);
-  } catch (error) {
-    fail(error, 'Não foi possível ler o arquivo');
-  }
-}
-
-function clearDocument() {
-  state.docsWorkbook = null;
-  $('#docsResult').hidden = true;
-  $('#docsFile').value = '';
-
-  setMessage('docsMessage', 'Selecione um documento para visualizar o conteúdo.');
-}
-
-async function handleDocument(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-
-  setMessage('docsMessage', `Lendo ${file.name}...`);
-
-  $('#docsResult').hidden = false;
-  $('#docsFilename').textContent = file.name;
-  $('#docsMetadata').textContent = `${ext.toUpperCase()} · ${(file.size / 1024).toFixed(1)} KB`;
-  $('#docsSpreadsheet').hidden = true;
-  $('#docsTextResult').hidden = true;
-
-  try {
-    if (['csv', 'txt'].includes(ext)) {
-      const text = await file.text();
-
-      if (
-        ext === 'csv'
-        || text.split(/\r?\n/)[0].includes(';')
-        || text.split(/\r?\n/)[0].includes('\t')
-      ) {
-        const rows = csvParse(text);
-        showSpreadsheet(rows, file.name);
-      } else {
-        showExtractedText(text, file.name);
-      }
-    } else if (['xlsx', 'xls'].includes(ext)) {
-      const XLSX = await import('https://esm.sh/xlsx@0.18.5');
-      const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-
-      state.docsWorkbook = {
-        filename: file.name,
-        sheets: wb.SheetNames,
-        book: wb
-      };
-
-      const select = $('#docsSheetSelect');
-
-      select.innerHTML = wb.SheetNames
-        .map((n, i) => `<option value="${i}">${esc(n)}</option>`)
-        .join('');
-
-      select.onchange = () => renderWorkbookSheet(Number(select.value));
-
-      renderWorkbookSheet(0);
-
-      $('#docsSpreadsheet').hidden = false;
-
-      setMessage(
-        'docsMessage',
-        'Planilha carregada. Confira a aba e envie ao importador quando estiver pronta.'
-      );
-    } else if (ext === 'pdf') {
-      const pdfjs = await import('https://esm.sh/pdfjs-dist@4.4.168/legacy/build/pdf.mjs');
-
-      const pdf = await pdfjs.getDocument({
-        data: await file.arrayBuffer()
-      }).promise;
-
-      let text = '';
-
-      for (let i = 1; i <= Math.min(pdf.numPages, 50); i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-
-        text += `\n--- Página ${i} ---\n`
-          + content.items.map(x => x.str || '').join(' ')
-          + '\n';
-      }
-
-      showExtractedText(text, file.name);
-
-      setMessage(
-        'docsMessage',
-        pdf.numPages > 50
-          ? 'PDF lido parcialmente (limite de 50 páginas).'
-          : 'PDF lido no navegador; documentos digitalizados podem exigir OCR.'
-      );
-    } else if (ext === 'docx') {
-      const mammoth = await import('https://esm.sh/mammoth@1.8.0');
-
-      const result = await mammoth.extractRawText({
-        arrayBuffer: await file.arrayBuffer()
-      });
-
-      showExtractedText(result.value, file.name);
-
-      setMessage('docsMessage', 'Texto do Word extraído no navegador.');
-    } else {
-      throw new Error('Formato não suportado.');
-    }
-  } catch (error) {
-    setMessage('docsMessage', `Erro ao ler documento: ${error.message || error}`);
-    console.error(error);
-  }
-}
-
-function renderWorkbookSheet(index) {
-  if (!state.docsWorkbook?.book) return;
-
-  const XLSXPromise = import('https://esm.sh/xlsx@0.18.5');
-
-  XLSXPromise.then(XLSX => {
-    const name = state.docsWorkbook.book.SheetNames[index];
-
-    const rows = XLSX.utils.sheet_to_json(
-      state.docsWorkbook.book.Sheets[name],
-      { header: 1, defval: '' }
-    );
-
-    state.docsWorkbook.rows = rows;
-
-    showSpreadsheet(rows, state.docsWorkbook.filename);
-
-    $('#docsSpreadsheet').hidden = false;
-
-    setMessage(
-      'docsSheetInfo',
-      `${name} · ${Math.max(0, rows.length - 1)} linha(s) aproximadas`
-    );
-  }).catch(error => {
-    setMessage('docsMessage', `Erro ao mostrar aba: ${error.message}`);
-  });
-}
-
-function showSpreadsheet(rows, filename) {
-  state.docsWorkbook = {
-    ...(state.docsWorkbook || {}),
-    filename,
-    rows
   };
 
-  const table = $('#docsTable');
-  const headers = rows[0] || [];
-
-  table.innerHTML = `
-    <thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.slice(1, 101).map(row =>
-      `<tr>${headers.map((_, i) => `<td>${esc(row[i] ?? '')}</td>`).join('')}</tr>`
-    ).join('')}</tbody>`;
-
-  $('#docsSpreadsheet').hidden = false;
-  $('#docsTextResult').hidden = true;
-  $('#docsResult').hidden = false;
-
-  const sheet = $('#docsSheetSelect');
-
-  if (sheet && !sheet.options.length) {
-    sheet.innerHTML = '<option value="0">Planilha</option>';
-  }
-
-  setMessage(
-    'docsSheetInfo',
-    `${Math.max(0, rows.length - 1)} linha(s); prévia limitada a 100 linhas.`
+  downloadFile(
+    `suregpa-backup-${today()}.json`,
+    JSON.stringify(backup, null, 2),
+    "application/json"
   );
 }
 
-function showExtractedText(text, filename) {
-  $('#docsSpreadsheet').hidden = true;
-  $('#docsTextResult').hidden = false;
-  $('#docsText').value = text;
+async function restoreBackup(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
 
-  const cnpj = [...text.matchAll(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g)]
-    .map(m => m[0]);
+  if (!requireEdit()) return;
 
-  const processes = [...text.matchAll(/\b\d{5,}\.\d{6}\/\d{4}-\d{2}\b/g)]
-    .map(m => m[0]);
+  try {
+    const backup = JSON.parse(await file.text());
+    const data = backup.data;
 
-  const values = [...text.matchAll(/R\$\s?[\d.]+,\d{2}/g)]
-    .map(m => m[0]);
+    if (!data || !confirm(
+      "A restauração vai INSERIR os registros do backup na instituição atual. " +
+      "Ela não apagará automaticamente os dados existentes. Continuar?"
+    )) return;
 
-  const dates = [...text.matchAll(/\b\d{2}\/\d{2}\/\d{4}\b/g)]
-    .map(m => m[0]);
+    const mapping = [
+      ["suppliers", TABLES.suppliers],
+      ["contracts", TABLES.contracts],
+      ["payments", TABLES.payments],
+      ["pending", TABLES.pending]
+    ];
 
-  const groups = [
-    ['CNPJs', cnpj],
-    ['Processos', processes],
-    ['Datas', dates],
-    ['Valores', values]
-  ];
+    let count = 0;
 
-  $('#docsDetected').innerHTML = groups.map(([label, items]) => `
-    <div class="docs-found-item">
-      <strong>${label} (${items.length})</strong>
-      <span>${esc([...new Set(items)].slice(0, 10).join(', ') || 'Nenhum identificado')}</span>
-    </div>`).join('');
+    for (const [key, table] of mapping) {
+      for (const original of data[key] || []) {
+        const row = { ...original };
+        delete row.id;
+        delete row.criado_em;
+        delete row.atualizado_em;
+        delete row.criado_por;
 
-  setMessage(
-    'docsTextNote',
-    'Extração automática simples; confira os dados antes de utilizá-los.'
-  );
+        await insertRow(table, row);
+        count++;
+      }
+    }
 
-  setMessage('docsMessage', `Texto extraído de ${filename}.`);
+    await loadAllData();
+    notify(`Restauração concluída: ${count} registros inseridos.`, "success");
+  } catch (error) {
+    showError(error, "Falha ao restaurar backup");
+  } finally {
+    event.target.value = "";
+  }
+}
+
+/* =========================
+   SESSÃO E INICIALIZAÇÃO
+   ========================= */
+
+async function initializeApp() {
+  try {
+    setBusy(true);
+
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+
+    if (!data.user) {
+      renderLogin();
+      return;
+    }
+
+    state.user = data.user;
+
+    await loadMembership();
+    hideLogin();
+    await loadAllData();
+
+    const logoutButton = $("#logoutButton");
+
+    if (logoutButton && !logoutButton.dataset.bound) {
+      logoutButton.dataset.bound = "1";
+      logoutButton.addEventListener("click", async () => {
+        if (!confirm("Deseja sair do sistema?")) return;
+
+        const { error: logoutError } = await supabase.auth.signOut();
+        if (logoutError) {
+          showError(logoutError, "Não foi possível sair");
+          return;
+        }
+
+        location.reload();
+      });
+    }
+
+    if (!$("#logoutButton")) {
+      let button = $("#suregpaLogout");
+
+      if (!button) {
+        button = document.createElement("button");
+        button.id = "suregpaLogout";
+        button.type = "button";
+        button.textContent = "Sair";
+        Object.assign(button.style, {
+          position: "fixed",
+          right: "18px",
+          bottom: "18px",
+          zIndex: "9990",
+          padding: "10px 16px",
+          border: "0",
+          borderRadius: "9px",
+          background: "#173b67",
+          color: "#fff",
+          cursor: "pointer"
+        });
+        document.body.appendChild(button);
+      }
+
+      if (!button.dataset.bound) {
+        button.dataset.bound = "1";
+        button.addEventListener("click", async () => {
+          if (!confirm("Deseja sair do sistema?")) return;
+          const { error: logoutError } = await supabase.auth.signOut();
+          if (logoutError) showError(logoutError, "Erro ao sair");
+          else location.reload();
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[SUREGPA] Inicialização:", error);
+    renderLogin();
+
+    const message = $("#suregpaLoginMessage");
+    if (message) {
+      message.textContent = error.message ||
+        "Não foi possível iniciar o sistema. Verifique sua conta e permissões.";
+    } else {
+      notify(error.message || "Erro ao iniciar o sistema.", "error");
+    }
+  } finally {
+    setBusy(false);
+  }
 }
 
 function start() {
-  wireEvents();
-  showView('dashboard');
-  ensureLoginUI();
-  initialize();
+  bindForms();
+  bindNavigation();
+  bindActions();
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT" || !session) {
+      state.user = null;
+      state.institution = null;
+      state.role = null;
+      renderLogin();
+    }
+  });
+
+  initializeApp();
 }
 
 start();
