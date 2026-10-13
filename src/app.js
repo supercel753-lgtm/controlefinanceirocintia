@@ -150,84 +150,168 @@
   }
 
   // ========================================
-  // SUPABASE — ESQUEMA REAL SUREG-PA
+  // SUPABASE — ESTRUTURA OFICIAL CAF SUREG-PA
   // ========================================
-  // Exige a coluna caf_dados JSONB nas quatro tabelas (SQL separado).
-  // A chave publicável NÃO autoriza leitura/escrita sem RLS e sessão.
+  // Quatro tabelas: suppliers, contracts, payments e pendencias.
+  // Requer caf_dados JSONB e as políticas RLS do SQL entregue.
+  // NENHUMA chave administrativa deve ser inserida neste arquivo.
   const SB_URL = "https://bnzkgyymwlulsobbcdpp.supabase.co";
   const SB_KEY = "sb_publishable_i3JcVDLPefiXQUDwOZZQWA_6_R9m2Wx";
   const SB_REST = `${SB_URL}/rest/v1`;
+  const AUTH_STORAGE = "caf-suregpa-auth-session-v1";
   const TABLES = {
     suppliers: { name: "suppliers", tenant: "instituicao_id" },
     contracts: { name: "contracts", tenant: "instituicao_id" },
     payments: { name: "payments", tenant: "institutionId" },
     pendencias: { name: "pendencias", tenant: "instituicao_id" }
   };
-  // Informe somente o UUID da instituição autorizada. Não é credencial.
-  // Pode ser definido ANTES de carregar app.js no index.html:
-  // <script>window.SUREGPA_INSTITUICAO_ID = "UUID...";</script>
-  const INSTITUICAO_ID = String(window.SUREGPA_INSTITUICAO_ID || "").trim();
+  // Opcional: se o usuário participa de apenas uma instituição,
+  // o aplicativo identifica o vínculo automaticamente em caf_membros.
+  let INSTITUICAO_ID = String(window.SUREGPA_INSTITUICAO_ID || "").trim();
   const PENDENCIA_CATEGORY = "caf_financeira";
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const adapters = Object.fromEntries(Object.entries(TABLES).map(([type, config]) => [
-    type, { table: config.name, tenant: config.tenant }
-  ]));
   let busy = false;
   let remoteLoaded = false;
+  let authModal = null;
+  let fallbackSession = null;
+  let refreshing = null;
+  let started = false;
 
   function explainError(error) {
     const message = error?.message || String(error);
+    if (error?.code === "AUTH_REQUIRED") {
+      return "Faça login com uma conta autorizada no Supabase Auth. A chave publicável não concede acesso aos registros.";
+    }
     if (/permission|rls|jwt|unauthorized|row.level.security|42501|403|401/i.test(message)) {
       return "Acesso negado (Auth, GRANT ou RLS). Não remova as proteções: " + message;
     }
     return message;
   }
 
+  function clientAuth() {
+    const client = window.suregpaSupabase || window.supabaseClient ||
+      (window.supabase?.auth?.getSession ? window.supabase : null);
+    return client?.auth?.getSession ? client.auth : null;
+  }
+
+  function readAuthStorage() {
+    if (fallbackSession) return fallbackSession;
+    try {
+      const json = sessionStorage.getItem(AUTH_STORAGE);
+      const result = json ? JSON.parse(json) : null;
+      fallbackSession = result?.access_token && result?.refresh_token ? result : null;
+    } catch (error) {
+      console.warn("Sessão do navegador indisponível:", error);
+    }
+    return fallbackSession;
+  }
+
+  function saveAuthSession(data) {
+    if (!data?.access_token || !data?.refresh_token) {
+      throw Error("Resposta de autenticação incompleta.");
+    }
+    fallbackSession = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at ||
+        Math.floor(Date.now() / 1000) + Number(data.expires_in || 3600)
+    };
+    try {
+      sessionStorage.setItem(AUTH_STORAGE, JSON.stringify(fallbackSession));
+    } catch (error) {
+      console.warn("A sessão permanecerá apenas nesta página:", error);
+    }
+  }
+
+  async function authRequest(grantType, params) {
+    let response;
+    try {
+      response = await fetch(
+        `${SB_URL}/auth/v1/token?grant_type=${encodeURIComponent(grantType)}`,
+        {
+          method: "POST",
+          headers: { apikey: SB_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+          cache: "no-store"
+        }
+      );
+    } catch (error) {
+      throw Error(`Falha ao acessar Supabase Auth: ${error.message}`);
+    }
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw Error(json.msg || json.error_description || json.message ||
+        `Supabase Auth retornou HTTP ${response.status}.`);
+    }
+    saveAuthSession(json);
+    return json;
+  }
+
   async function accessToken() {
-    // Compatível com futura tela Auth; NÃO coloque JWT fixo no repositório.
-    const client = window.suregpaSupabase || window.supabaseClient;
-    if (client?.auth?.getSession) {
-      const { data, error } = await client.auth.getSession();
+    const auth = clientAuth();
+    if (auth) {
+      const { data, error } = await auth.getSession();
       if (error) throw Error(`Falha ao consultar sessão: ${error.message}`);
       if (data?.session?.access_token) return data.session.access_token;
     }
-    if (typeof window.SUREGPA_ACCESS_TOKEN === "string" && window.SUREGPA_ACCESS_TOKEN.trim()) {
-      return window.SUREGPA_ACCESS_TOKEN.trim();
+
+    const session = readAuthStorage();
+    if (!session?.access_token) {
+      const error = Error("Usuário não autenticado.");
+      error.code = "AUTH_REQUIRED";
+      throw error;
     }
-    throw Error("É necessária uma sessão autenticada no Supabase para consultar dados financeiros. A chave publicável não concede acesso privado. Configure Supabase Auth e faça login antes de usar o banco.");
+    if (Number(session.expires_at || 0) <= Math.floor(Date.now() / 1000) + 60) {
+      if (!refreshing) {
+        refreshing = authRequest("refresh_token", {
+          refresh_token: session.refresh_token
+        }).finally(() => { refreshing = null; });
+      }
+      try {
+        await refreshing;
+      } catch (error) {
+        fallbackSession = null;
+        try { sessionStorage.removeItem(AUTH_STORAGE); } catch { /* indisponível */ }
+        const required = Error(`Sessão expirada: ${error.message}`);
+        required.code = "AUTH_REQUIRED";
+        throw required;
+      }
+    }
+    return fallbackSession.access_token;
+  }
+
+  async function authenticate(email, password) {
+    if (!email || !password) throw Error("Informe e-mail e senha.");
+    const auth = clientAuth();
+    if (auth?.signInWithPassword) {
+      const { data, error } = await auth.signInWithPassword({ email, password });
+      if (error) throw Error(error.message);
+      if (!data?.session) throw Error("A sessão de login não foi estabelecida.");
+    } else {
+      await authRequest("password", { email, password });
+    }
   }
 
   function validateTenant() {
     if (!UUID_RE.test(INSTITUICAO_ID)) {
-      throw Error("Falta configurar o UUID da instituição em window.SUREGPA_INSTITUICAO_ID. Nenhum registro foi alterado.");
+      throw Error("Não foi possível determinar a instituição. Verifique seu vínculo em caf_membros ou defina window.SUREGPA_INSTITUICAO_ID.");
     }
   }
 
-  async function request(type, query = {}, options = {}) {
-    validateTenant();
-    const config = TABLES[type];
-    if (!config) throw Error(`Tipo de cadastro desconhecido: ${type}`);
+  async function apiFetch(path, options = {}) {
     const jwt = await accessToken();
-    const url = new URL(`${SB_REST}/${encodeURIComponent(config.name)}`);
-    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
-    // Defesa adicional: nunca consultar/escrever fora da instituição selecionada.
-    if ((options.method || "GET") !== "POST") {
-      url.searchParams.set(config.tenant, `eq.${INSTITUICAO_ID}`);
-    }
-    if (type === "pendencias" && (options.method || "GET") !== "POST") {
-      url.searchParams.set("categoria", `eq.${PENDENCIA_CATEGORY}`);
-    }
-    const headers = {
-      apikey: SB_KEY,
-      Authorization: `Bearer ${jwt}`,
-      Accept: "application/json",
-      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...(options.prefer ? { Prefer: options.prefer } : {})
-    };
+    const url = `${SB_REST}/${path}`;
     let response;
     try {
-      response = await fetch(url.href, {
-        method: options.method || "GET", headers,
+      response = await fetch(url, {
+        method: options.method || "GET",
+        headers: {
+          apikey: SB_KEY,
+          Authorization: `Bearer ${jwt}`,
+          Accept: "application/json",
+          ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(options.prefer ? { Prefer: options.prefer } : {})
+        },
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         cache: "no-store"
       });
@@ -240,13 +324,53 @@
       try { content = JSON.parse(text); } catch { content = text; }
     }
     if (!response.ok) {
-      const message = content?.message || content?.error_description || content?.error || text || response.statusText;
-      const err = Error(`[${response.status}] ${message}`);
+      const message = content?.message || content?.error_description ||
+        content?.error || text || response.statusText;
+      const err = Error(`[HTTP ${response.status}] ${message}`);
       err.code = content?.code || "";
       err.status = response.status;
       throw err;
     }
     return content;
+  }
+
+  async function resolveTenant() {
+    // Consulta restrita por RLS: SELECT de caf_membros só devolve o próprio usuário.
+    const memberships = await apiFetch("caf_membros?select=instituicao_id&limit=100");
+    if (!Array.isArray(memberships) || memberships.length === 0) {
+      throw Error("Seu usuário não consta de caf_membros. Um administrador deve vinculá-lo à instituição no Supabase.");
+    }
+    const allowed = [...new Set(memberships.map(row => row.instituicao_id))]
+      .filter(value => UUID_RE.test(value || ""));
+    if (INSTITUICAO_ID) {
+      validateTenant();
+      if (!allowed.includes(INSTITUICAO_ID)) {
+        throw Error("O usuário autenticado não pertence à instituição selecionada.");
+      }
+    } else if (allowed.length === 1) {
+      INSTITUICAO_ID = allowed[0];
+    } else {
+      throw Error("Seu usuário tem acesso a várias instituições. Defina window.SUREGPA_INSTITUICAO_ID com o UUID da SUREG-PA antes do app.js.");
+    }
+  }
+
+  async function request(type, query = {}, options = {}) {
+    validateTenant();
+    const config = TABLES[type];
+    if (!config) throw Error(`Tipo de cadastro desconhecido: ${type}`);
+    const url = new URL(`${SB_REST}/${encodeURIComponent(config.name)}`);
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, String(value));
+    }
+    // POST já transporta instituicao_id no corpo. Os demais métodos são
+    // filtrados por instituição, com validação adicional no Postgres (RLS).
+    if ((options.method || "GET") !== "POST") {
+      url.searchParams.set(config.tenant, `eq.${INSTITUICAO_ID}`);
+    }
+    if (type === "pendencias" && (options.method || "GET") !== "POST") {
+      url.searchParams.set("categoria", `eq.${PENDENCIA_CATEGORY}`);
+    }
+    return apiFetch(`${encodeURIComponent(config.name)}?${url.searchParams.toString()}`, options);
   }
 
   const finiteNumber = (value, name, fallback = 0) => {
@@ -1065,11 +1189,25 @@
   }
 
   function renderSettings() {
-    $("storageInfo").textContent =
+    const info = $("storageInfo");
+    info.textContent =
       `${db.suppliers.length} fornecedor(es) · ` +
       `${db.contracts.length} contrato(s) · ` +
       `${db.payments.length} pagamento(s) · ` +
-      `${db.pendencias.length} pendência(s)`;
+      `${db.pendencias.length} pendência(s)` +
+      (remoteLoaded ? " · Supabase conectado" : " · Banco não conectado");
+    let signout = document.getElementById("cafLogoutButton");
+    if (!signout) {
+      signout = document.createElement("button");
+      signout.id = "cafLogoutButton";
+      signout.type = "button";
+      signout.textContent = "Encerrar sessão";
+      signout.className = "btn secondary small";
+      signout.style.marginTop = "8px";
+      signout.addEventListener("click", logout);
+      info.insertAdjacentElement("afterend", signout);
+    }
+    signout.hidden = !remoteLoaded;
   }
 
   function renderAll() {
@@ -1685,6 +1823,32 @@
     try {
       const parsed = JSON.parse(await file.text());
 
+      validateBackup(parsed);
+      // Backups legados podem conter IDs não UUID. Apenas esses IDs são
+      // convertidos e seus vínculos são atualizados antes da gravação.
+      const supplierIds = new Map();
+      const contractIds = new Map();
+      for (const row of parsed.suppliers) {
+        if (!UUID_RE.test(row.id)) {
+          const old = row.id;
+          row.id = uuid();
+          supplierIds.set(old, row.id);
+        }
+      }
+      for (const row of parsed.contracts) {
+        row.supplier = supplierIds.get(row.supplier) || row.supplier;
+        if (!UUID_RE.test(row.id)) {
+          const old = row.id;
+          row.id = uuid();
+          contractIds.set(old, row.id);
+        }
+      }
+      for (const type of ["payments", "pendencias"]) {
+        for (const row of parsed[type]) {
+          row.contractId = contractIds.get(row.contractId) || row.contractId;
+          if (!UUID_RE.test(row.id)) row.id = uuid();
+        }
+      }
       validateBackup(parsed);
 
       if (
@@ -2541,21 +2705,138 @@
     retry.style.cssText =
       "padding:8px 12px;cursor:pointer;border-radius:6px;border:1px solid #c2410c;" +
       "background:#fff;color:#9a3412;font-weight:600";
-    retry.addEventListener("click", () => window.location.reload());
+    retry.addEventListener("click", () => bootstrap());
     panel.append(title, intro, technical, retry);
     console.error("[CAF] Erro original do Supabase:", error);
   }
 
-  async function init() {
+  async function logout() {
+    const auth = clientAuth();
+    const session = readAuthStorage();
     try {
+      if (auth?.signOut) {
+        const { error } = await auth.signOut();
+        if (error) throw error;
+      } else if (session?.access_token) {
+        await fetch(`${SB_URL}/auth/v1/logout`, {
+          method: "POST",
+          headers: { apikey: SB_KEY, Authorization: `Bearer ${session.access_token}` }
+        });
+      }
+    } catch (error) {
+      console.warn("Não foi possível confirmar o logout no servidor:", error);
+    } finally {
+      fallbackSession = null;
+      try { sessionStorage.removeItem(AUTH_STORAGE); } catch { /* indisponível */ }
+      INSTITUICAO_ID = String(window.SUREGPA_INSTITUICAO_ID || "").trim();
+      remoteLoaded = false;
+      storageLocked = true;
+      db = emptyDB();
+      renderAll();
+      showLogin();
+    }
+  }
+
+  function showLogin() {
+    if (authModal?.isConnected) return;
+    // Não modifica a página original. Apenas solicita autenticação quando
+    // as políticas do banco exigem usuário conectado.
+    const overlay = document.createElement("div");
+    overlay.id = "cafLoginGate";
+    overlay.style.cssText =
+      "position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:2147483646;" +
+      "display:grid;place-items:center;padding:20px;box-sizing:border-box";
+    const card = document.createElement("div");
+    card.style.cssText =
+      "background:white;color:#1e293b;border-radius:14px;padding:24px;" +
+      "width:min(420px,100%);box-shadow:0 20px 60px rgba(0,0,0,.3);" +
+      "font:14px/1.5 system-ui,sans-serif";
+    const title = document.createElement("h2");
+    title.textContent = "Acesso ao Controle Financeiro";
+    title.style.cssText = "font-size:20px;margin:0 0 8px";
+    const description = document.createElement("p");
+    description.textContent = "Utilize seu usuário do Supabase Auth autorizado para a SUREG-PA.";
+    description.style.margin = "0 0 16px";
+    const form = document.createElement("form");
+    form.style.cssText = "display:grid;gap:12px";
+    const email = document.createElement("input");
+    email.type = "email";
+    email.required = true;
+    email.autocomplete = "username";
+    email.placeholder = "E-mail";
+    email.setAttribute("aria-label", "E-mail");
+    email.style.cssText = "padding:11px;border:1px solid #cbd5e1;border-radius:8px";
+    const password = document.createElement("input");
+    password.type = "password";
+    password.required = true;
+    password.autocomplete = "current-password";
+    password.placeholder = "Senha";
+    password.setAttribute("aria-label", "Senha");
+    password.style.cssText = email.style.cssText;
+    const message = document.createElement("p");
+    message.setAttribute("role", "alert");
+    message.style.cssText = "color:#b91c1c;margin:0;font-size:13px;white-space:pre-wrap";
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Entrar";
+    button.style.cssText =
+      "padding:11px;border:0;border-radius:8px;background:#166e79;color:white;" +
+      "font-weight:600;cursor:pointer";
+    form.append(email, password, button, message);
+    card.append(title, description, form);
+    overlay.append(card);
+    document.body.append(overlay);
+    authModal = overlay;
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      button.disabled = true;
+      message.textContent = "Conectando...";
+      try {
+        await authenticate(email.value.trim(), password.value);
+        password.value = "";
+        await bootstrap();
+      } catch (error) {
+        console.error("Erro de autenticação:", error);
+        message.textContent = explainError(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    email.focus();
+  }
+
+  async function bootstrap() {
+    try {
+      await resolveTenant();
       db = await loadDB();
       remoteLoaded = true;
       storageLocked = false;
       document.getElementById("cafSupabaseError")?.remove();
+      authModal?.remove();
+      authModal = null;
+      renderAll();
     } catch (error) {
+      console.error("Falha ao iniciar o Supabase:", error);
+      remoteLoaded = false;
       storageLocked = true;
-      showConnectionError(error);
+      db = emptyDB();
+      renderAll();
+      if (error?.code === "AUTH_REQUIRED" || /invalid.jwt|jwt.expired|JWT expired/i.test(error?.message || "")) {
+        document.getElementById("cafSupabaseError")?.remove();
+        showLogin();
+      } else {
+        // A sessão pode existir, mas faltar vínculo em caf_membros.
+        // Exibimos o erro sem permitir operações de escrita.
+        authModal?.remove();
+        authModal = null;
+        showConnectionError(error);
+      }
     }
+  }
+
+  async function init() {
+    if (started) return;
+    started = true;
     renderAll();
 
     const forms = {
@@ -2756,6 +3037,7 @@
     });
 
     navigate("dashboard");
+    await bootstrap();
 
   }
 
