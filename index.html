@@ -1,1097 +1,1135 @@
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#124f7f">
-  <meta name="description" content="CAF SUREG-PA — Controle e Acompanhamento Financeiro">
-  <title>CAF SUREG-PA | Gestão Financeira</title>
-
-  <link rel="icon" href="assets/favicon.ico?v=9">
-  <link rel="stylesheet" href="src/style.css?v=9">
-  <script defer src="src/app.js?v=9"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#123b55">
+  <meta name="description" content="Controle Financeiro SUREG-PA — gestão de contratos, pagamentos, fornecedores e pendências.">
+  <title>Controle Financeiro SUREG-PA</title>
+  <link rel="stylesheet" href="src/style.css">
 
   <style>
-    /* Estilos exclusivos da Central de Documentos */
-    .docs-panel {
-      border-top: 3px solid #1277b5;
+    :root {
+      color-scheme: light;
+      --navy: #123b55;
+      --blue: #176b9b;
+      --blue-light: #e9f4fb;
+      --bg: #f3f6f9;
+      --card: #fff;
+      --text: #20394b;
+      --muted: #6d8190;
+      --border: #dce5ec;
+      --green: #21865a;
+      --red: #b83c43;
+      --orange: #b77b1d;
+      --radius: 14px;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
     }
-    .docs-dropzone { margin-top: 16px; }
-    .docs-toolbar {
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .app-layout {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 245px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: var(--navy);
+      color: white;
+      padding: 24px 14px;
       display: flex;
-      align-items: end;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin: 15px 0;
+      flex-direction: column;
+      gap: 24px;
     }
-    .docs-toolbar label {
-      color: #55768c;
-      font-size: 12px;
-      font-weight: 750;
-    }
-    .docs-toolbar select {
-      min-width: 140px;
-      padding: 10px;
-      border: 1px solid #d9e5ed;
-      border-radius: 8px;
-      color: #38566a;
-      background: #f9fbfd;
-    }
-    .docs-table-scroll { max-height: 400px; }
-    .docs-found {
+
+    .brand { padding: 4px 12px; }
+    .brand-mark {
+      width: 43px;
+      height: 43px;
+      border-radius: 12px;
       display: grid;
-      gap: 10px;
-      margin: 15px 0 19px;
+      place-items: center;
+      background: #fff;
+      color: var(--navy);
+      font-weight: 900;
+      font-size: 20px;
+      margin-bottom: 12px;
     }
-    .docs-found-item {
-      display: grid;
-      gap: 5px;
-      padding: 12px;
-      border: 1px solid #dfe8f0;
-      border-radius: 9px;
-      background: #f8fbfd;
-      font-size: 12px;
+    .brand h1 { font-size: 17px; margin: 0 0 5px; }
+    .brand p { color: #c0d6e5; font-size: 12px; margin: 0; }
+
+    .nav-section-title {
+      color: #a8c4d5;
+      text-transform: uppercase;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      padding: 0 12px;
+      margin: 0 0 7px;
     }
-    .docs-found-item span {
-      overflow-wrap: anywhere;
-      color: #607f91;
-    }
-    .docs-subheading { margin-top: 24px; }
-    .docs-text-label {
-      display: block;
-      margin: 15px 0 8px;
-      font-size: 12px;
-      font-weight: 750;
-    }
-    #docsText {
-      display: block;
+
+    .nav-menu { display: grid; gap: 5px; }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 11px;
       width: 100%;
-      min-height: 260px;
-      padding: 13px;
-      border: 1px solid #dfe8f0;
+      padding: 12px;
+      color: #d8e7f0;
+      border: 0;
       border-radius: 9px;
-      background: #fbfcfe;
-      color: #27485e;
-      resize: vertical;
+      background: transparent;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .nav-link:hover, .nav-link.active {
+      background: #ffffff1a;
+      color: white;
+    }
+
+    .nav-icon { width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px;
+      color: #c0d6e5;
+      font-size: 11px;
       line-height: 1.6;
-      font-family: Consolas, monospace;
+      border-top: 1px solid #ffffff25;
+    }
+
+    .main { min-width: 0; }
+
+    .topbar {
+      min-height: 83px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 18px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .topbar h2 { margin: 0; font-size: 23px; color: var(--navy); }
+    .topbar p { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    .content { padding: 25px 30px 40px; max-width: 1600px; margin: auto; }
+    .view[hidden], [hidden] { display: none !important; }
+
+    .page-intro { margin-bottom: 20px; }
+    .page-intro h3 { margin: 0 0 6px; font-size: 18px; }
+    .page-intro p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+    .grid { display: grid; gap: 16px; }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .panel, .kpi, .summary-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 2px 7px #17374a08;
+    }
+
+    .panel { padding: 20px; min-width: 0; margin-bottom: 18px; }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .panel-header h3 { margin: 0; font-size: 15px; }
+    .muted, small { color: var(--muted); }
+    .muted { font-size: 13px; }
+
+    .kpi { padding: 20px; min-width: 0; }
+    .kpi-label { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .kpi-value { font-size: clamp(19px, 2vw, 27px); font-weight: 800; margin: 12px 0 8px; color: var(--navy); overflow-wrap: anywhere; }
+    .kpi-sub { font-size: 11px; color: var(--muted); line-height: 1.5; }
+    .kpi-symbol { font-size: 19px; margin-bottom: 10px; }
+
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 10px 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
       font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .btn.primary { background: var(--blue); color: white; }
+    .btn.primary:hover { background: #115780; }
+    .btn.secondary { background: var(--blue-light); color: var(--blue); border-color: #d1e7f5; }
+    .btn.subtle { background: white; color: var(--text); border-color: var(--border); }
+    .btn.danger { background: #fff0f0; color: var(--red); border-color: #f1cccc; }
+    .btn.small { padding: 7px 9px; }
+
+    .toolbar {
+      display: flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .field label, label.field { font-size: 12px; font-weight: 750; color: #365366; }
+
+    input, select, textarea {
+      width: 100%;
+      min-width: 0;
+      padding: 10px 11px;
+      border: 1px solid #ccd9e2;
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      outline: none;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px #176b9b17;
+    }
+
+    input[type="checkbox"] { width: auto; }
+    textarea { resize: vertical; min-height: 85px; }
+    .toolbar input, .toolbar select { width: auto; flex: 1 1 160px; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
+    .field-grid .wide { grid-column: 1 / -1; }
+    .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th, td { padding: 12px 11px; border-bottom: 1px solid #e8edf1; text-align: left; vertical-align: middle; }
+    th { background: #f7fafc; color: #5e7586; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+    td { line-height: 1.5; }
+    tbody tr:hover { background: #f8fbfd; }
+
+    .status-pill {
+      display: inline-flex;
+      border-radius: 100px;
+      padding: 5px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      background: #fff3db;
+      color: #946314;
+      white-space: nowrap;
+    }
+    .status-pill.good { background: #e1f5e9; color: #167446; }
+    .status-pill.bad { background: #ffe6e6; color: #a62e35; }
+
+    .mini-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 13px 0;
+      border-bottom: 1px solid #edf1f4;
+      font-size: 12px;
+    }
+    .mini-row:last-child { border-bottom: 0; }
+    .mini-row small { display: block; margin-top: 5px; font-size: 10px; }
+
+    .bar-chart {
+      height: 185px;
+      display: flex;
+      align-items: stretch;
+      gap: 14px;
+      padding: 15px 4px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .bar-group { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; }
+    .bar-pair { display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 135px; width: 100%; }
+    .bar-paid, .bar-open { display: block; width: min(24px, 40%); border-radius: 4px 4px 0 0; min-height: 2px; }
+    .bar-paid { background: #2383b6; }
+    .bar-open { background: #edb24c; }
+    .bar-group small { font-size: 10px; }
+
+    .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--muted); }
+    .chart-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: #2383b6; margin-right: 6px; }
+    .chart-legend .pending-key::before { background: #edb24c; }
+
+    .status-chart { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    #statusDonut {
+      width: 145px; height: 145px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto;
+    }
+    #statusDonut span { width: 90px; height: 90px; background: white; border-radius: 50%; display: grid; place-content: center; text-align: center; font-size: 24px; font-weight: 800; }
+    #statusDonut small { font-size: 10px; font-weight: 500; }
+    #statusLegend { flex: 1; min-width: 130px; }
+    #statusLegend > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 12px; }
+
+    .pending-card {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 16px 0;
+      border-bottom: 1px solid #e8edf1;
+    }
+    .pending-card:last-child { border-bottom: 0; }
+    .pending-card p { font-size: 12px; line-height: 1.5; }
+    .button-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 9px; }
+    .summary-card { padding: 17px; display: flex; flex-direction: column; gap: 10px; }
+    .summary-card span { font-size: 11px; color: var(--muted); }
+    .summary-card strong { font-size: 18px; overflow-wrap: anywhere; }
+
+    .progress { height: 10px; background: #e7edf2; border-radius: 10px; overflow: hidden; margin: 12px 0; }
+    .progress > div { height: 100%; width: 0; background: #21865a; transition: width .2s; }
+
+    .dropzone {
+      border: 2px dashed #b7cbd9;
+      border-radius: 12px;
+      padding: 35px 18px;
+      text-align: center;
+      background: #f9fcfe;
+      cursor: pointer;
+    }
+    .dropzone:hover, .dropzone.dragover { background: #edf7fc; border-color: var(--blue); }
+    .dropzone strong { display: block; margin-bottom: 8px; }
+    .dropzone p { font-size: 12px; color: var(--muted); margin: 0; }
+
+    .notice {
+      background: #eef7fc;
+      border: 1px solid #d1e7f5;
+      color: #275772;
+      padding: 13px 15px;
+      border-radius: 9px;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-bottom: 15px;
+    }
+
+    .error-box {
+      white-space: pre-wrap;
+      color: #a32626;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 10px;
+    }
+
+    dialog {
+      width: min(700px, calc(100% - 24px));
+      max-height: 90vh;
+      overflow-y: auto;
+      border: 0;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 80px #0004;
+      color: var(--text);
+    }
+    dialog::backdrop { background: #0b2538a8; }
+    dialog h2 { font-size: 19px; margin: 0 0 20px; color: var(--navy); }
+    .dialog-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .dialog-top button { border: 0; background: transparent; font-size: 22px; }
+    #toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 100001;
+      max-width: min(430px, calc(100% - 40px));
+      background: #163f57;
+      color: white;
+      padding: 13px 17px;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px #0002;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: .2s;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+    #toast[data-kind="error"] { background: #a32626; }
+    #toast[data-kind="success"] { background: #176c46; }
+
+    @media (max-width: 1100px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .content { padding: 20px; }
+      .topbar { padding: 17px 20px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-layout { grid-template-columns: 1fr; }
+      .sidebar { padding: 12px; gap: 12px; }
+      .brand { display: flex; align-items: center; gap: 12px; padding: 5px; }
+      .brand-mark { margin: 0; flex: 0 0 42px; }
+      .brand h1 { font-size: 15px; }
+      .nav-section-title { display: none; }
+      .nav-menu { display: flex; overflow-x: auto; padding-bottom: 3px; }
+      .nav-link { width: auto; flex: 0 0 auto; padding: 10px; }
+      .nav-icon { display: none; }
+      .sidebar-footer { display: none; }
+      .topbar { align-items: flex-start; padding: 16px; }
+      .topbar h2 { font-size: 20px; }
+      .content { padding: 14px; }
+      .grid-3, .grid-2 { grid-template-columns: 1fr; }
+      .panel { padding: 15px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .field-grid .wide { grid-column: auto; }
+      .pending-card { flex-direction: column; }
+      .grid-4 { gap: 10px; }
+      .kpi { padding: 14px; }
+      .kpi-value { font-size: 20px; }
     }
   </style>
 </head>
 
 <body>
-<div class="app-layout">
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">CF</div>
+        <div>
+          <h1>Controle Financeiro</h1>
+          <p>SUREG-PA · Gestão administrativa</p>
+        </div>
+      </div>
 
-  <!-- MENU LATERAL -->
-  <aside class="sidebar" aria-label="Menu principal">
-
-    <div class="brand">
-      <img src="assets/logo-sgb.png" alt="Serviço Geológico do Brasil">
-      <strong>CAF <span>SUREG-PA</span></strong>
-      <small>Controle e Acompanhamento Financeiro</small>
-    </div>
-
-    <nav class="nav" aria-label="Módulos do sistema">
-      <span class="nav-group">PAINEL</span>
-
-      <button type="button" class="nav-link active" data-view="dashboard">
-        ◫ <span>Visão geral</span>
-      </button>
-
-      <span class="nav-group">GESTÃO FINANCEIRA</span>
-
-      <button type="button" class="nav-link" data-view="contracts">
-        ▤ <span>Contratos</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="payments">
-        ↗ <span>Pagamentos</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="pending">
-        ◷ <span>Pendências</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="budget">
-        ▥ <span>Orçamento e PLOA</span>
-      </button>
-
-      <span class="nav-group">CADASTROS E DADOS</span>
-
-      <button type="button" class="nav-link" data-view="suppliers">
-        ▦ <span>Fornecedores</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="files">
-        ⇅ <span>Importar e exportar</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="documents">
-        ▣ <span>Central de Documentos</span>
-      </button>
-
-      <button type="button" class="nav-link" data-view="settings">
-        ⚙ <span>Configurações</span>
-      </button>
-    </nav>
-
-    <div class="sidebar-bottom">
-      CAF SUREG-PA <span>· Gestão financeira</span>
-    </div>
-  </aside>
-
-  <!-- CONTEÚDO -->
-  <main class="main">
-
-    <header class="topbar">
       <div>
-        <span class="eyebrow">CAF / SUREG-PA</span>
-        <h1 id="pageTitle">Visão geral</h1>
+        <p class="nav-section-title">Menu principal</p>
+        <nav class="nav-menu" aria-label="Navegação principal">
+          <button class="nav-link active" data-view="dashboard"><span class="nav-icon">▦</span>Visão geral</button>
+          <button class="nav-link" data-view="contracts"><span class="nav-icon">▤</span>Contratos</button>
+          <button class="nav-link" data-view="payments"><span class="nav-icon">R$</span>Pagamentos</button>
+          <button class="nav-link" data-view="pending"><span class="nav-icon">◷</span>Pendências</button>
+          <button class="nav-link" data-view="budget"><span class="nav-icon">▥</span>Orçamento e PLOA</button>
+          <button class="nav-link" data-view="suppliers"><span class="nav-icon">♙</span>Fornecedores</button>
+          <button class="nav-link" data-view="files"><span class="nav-icon">⇧</span>Importar e exportar</button>
+          <button class="nav-link" data-view="documents"><span class="nav-icon">▧</span>Central de documentos</button>
+          <button class="nav-link" data-view="settings"><span class="nav-icon">⚙</span>Configurações</button>
+        </nav>
       </div>
 
-      <div class="header-actions">
-        <button type="button" class="btn secondary" data-view="documents">
-          ↑ Abrir documentos
-        </button>
-        <button type="button" class="btn primary" data-action="new-contract">
-          + Novo contrato
-        </button>
+      <div class="sidebar-footer">
+        <strong>CAF SUREG-PA</strong><br>
+        Sistema de controle administrativo e financeiro.<br>
+        <span>Os dados são acessados por meio do Supabase.</span>
       </div>
-    </header>
+    </aside>
 
-    <!-- DASHBOARD -->
-    <section class="view" id="view-dashboard">
-
-      <div class="section-heading">
+    <main class="main">
+      <header class="topbar">
         <div>
-          <h2>Panorama financeiro</h2>
-          <p>Indicadores calculados a partir dos registros cadastrados.</p>
+          <h2 id="pageTitle">Visão geral</h2>
+          <p id="storageInfo">Inicializando conexão segura...</p>
         </div>
-        <span class="period-label">Exercício 2026</span>
-      </div>
-
-      <div class="kpi-grid">
-
-        <article class="kpi">
-          <span>Contratos vigentes</span>
-          <strong id="kpiActive">0</strong>
-          <small id="kpiActiveSub">0 contratos cadastrados</small>
-        </article>
-
-        <article class="kpi green">
-          <span>Pagamentos de 2026</span>
-          <strong id="kpiPaid">R$ 0,00</strong>
-          <small id="kpiPaidSub">0 pagamentos registrados</small>
-        </article>
-
-        <article class="kpi orange">
-          <span>Pendências em aberto</span>
-          <strong id="kpiPending">R$ 0,00</strong>
-          <small id="kpiPendingSub">0 registros pendentes</small>
-        </article>
-
-        <article class="kpi violet">
-          <span>PLOA 2026 informado</span>
-          <strong id="kpiPloa">R$ 0,00</strong>
-          <small id="kpiPloaSub">Planejamento contratual</small>
-        </article>
-
-      </div>
-
-      <div class="grid-dashboard">
-
-        <article class="panel">
-          <div class="panel-heading">
-            <div>
-              <h3>Movimentação financeira</h3>
-              <p>Pagamentos e pendências por mês — últimos seis meses</p>
-            </div>
-            <div class="chart-legend">
-              <span class="legend-paid">Pagos</span>
-              <span class="legend-open">Pendentes</span>
-            </div>
-          </div>
-
-          <div id="monthlyChart" class="bar-chart"></div>
-        </article>
-
-        <article class="panel">
-          <div class="panel-heading">
-            <div>
-              <h3>Situação dos contratos</h3>
-              <p>Distribuição das vigências registradas</p>
-            </div>
-          </div>
-
-          <div id="statusDonut" class="donut"></div>
-          <div id="statusLegend" class="donut-legend"></div>
-        </article>
-
-      </div>
-
-      <div class="grid-half">
-
-        <article class="panel">
-          <div class="panel-heading">
-            <h3>Pagamentos recentes</h3>
-            <button type="button" class="link-action" data-view="payments">
-              Ver todos →
-            </button>
-          </div>
-          <div id="recentPayments"></div>
-        </article>
-
-        <article class="panel">
-          <div class="panel-heading">
-            <h3>Pendências abertas</h3>
-            <button type="button" class="link-action" data-view="pending">
-              Acompanhar →
-            </button>
-          </div>
-          <div id="recentPending"></div>
-        </article>
-
-      </div>
-    </section>
-
-    <!-- CONTRATOS -->
-    <section class="view" id="view-contracts" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Contratos</h2>
-          <p>Gestão de vigências, responsabilidades e dados financeiros.</p>
+        <div class="header-actions">
+          <button type="button" class="btn subtle" id="backupButton">Exportar backup</button>
         </div>
-        <button type="button" class="btn primary" data-action="new-contract">
-          + Cadastrar contrato
-        </button>
+      </header>
+
+      <div class="content">
+        <!-- VISÃO GERAL -->
+        <section class="view" id="view-dashboard">
+          <div class="page-intro">
+            <h3>Painel financeiro</h3>
+            <p>Acompanhe contratos, pagamentos e pendências da instituição selecionada.</p>
+          </div>
+
+          <div class="grid grid-4">
+            <article class="kpi">
+              <div class="kpi-symbol">▤</div>
+              <div class="kpi-label">Contratos vigentes</div>
+              <div class="kpi-value" id="kpiActive">—</div>
+              <div class="kpi-sub" id="kpiActiveSub">Carregando contratos</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-symbol">R$</div>
+              <div class="kpi-label">Pagamentos em 2026</div>
+              <div class="kpi-value" id="kpiPaid">—</div>
+              <div class="kpi-sub" id="kpiPaidSub">Total registrado</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-symbol">◷</div>
+              <div class="kpi-label">Valores pendentes</div>
+              <div class="kpi-value" id="kpiPending">—</div>
+              <div class="kpi-sub" id="kpiPendingSub">Pendências abertas</div>
+            </article>
+            <article class="kpi">
+              <div class="kpi-symbol">▥</div>
+              <div class="kpi-label">PLOA informado</div>
+              <div class="kpi-value" id="kpiPloa">—</div>
+              <div class="kpi-sub" id="kpiPloaSub">Planejamento informado</div>
+            </article>
+          </div>
+
+          <div class="grid grid-2" style="margin-top:18px">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Movimentação recente</h3>
+                <span class="muted">Últimos seis meses</span>
+              </div>
+              <div class="bar-chart" id="monthlyChart"></div>
+              <div class="chart-legend">
+                <span>Pagamentos</span>
+                <span class="pending-key">Pendências</span>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header"><h3>Situação dos contratos</h3></div>
+              <div class="status-chart">
+                <div id="statusDonut"><span>0<small>contratos</small></span></div>
+                <div id="statusLegend"></div>
+              </div>
+            </section>
+          </div>
+
+          <div class="grid grid-2" style="margin-top:0">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Pagamentos recentes</h3>
+                <button class="btn secondary" data-view="payments">Ver pagamentos</button>
+              </div>
+              <div id="recentPayments"><p class="muted">Carregando...</p></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Pendências em aberto</h3>
+                <button class="btn secondary" data-view="pending">Ver pendências</button>
+              </div>
+              <div id="recentPending"><p class="muted">Carregando...</p></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- CONTRATOS -->
+        <section class="view" id="view-contracts" hidden>
+          <div class="page-intro">
+            <h3>Gestão de contratos</h3>
+            <p>Cadastre e acompanhe a vigência, o valor e os dados dos contratos.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Contratos cadastrados</h3>
+              <button class="btn primary" data-action="new-contract">+ Novo contrato</button>
+            </div>
+            <div class="toolbar">
+              <input id="searchContracts" type="search" placeholder="Buscar contrato, processo ou fornecedor">
+              <select id="filterContractStatus">
+                <option value="todos">Todas as situações</option>
+                <option value="Vigente">Vigentes</option>
+                <option value="A iniciar">A iniciar</option>
+                <option value="Encerrado">Encerrados</option>
+                <option value="Sem vigência">Sem vigência informada</option>
+              </select>
+              <span class="muted" id="countContracts">0 contratos</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Contrato / processo</th><th>Fornecedor</th><th>Vigência</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+                <tbody id="rowsContracts"><tr><td colspan="6">Carregando...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- PAGAMENTOS -->
+        <section class="view" id="view-payments" hidden>
+          <div class="page-intro">
+            <h3>Gestão de pagamentos</h3>
+            <p>Registre pagamentos vinculados aos contratos e consulte os valores lançados.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Registros de pagamentos</h3>
+              <button class="btn primary" data-action="new-payment">+ Novo pagamento</button>
+            </div>
+            <div class="toolbar">
+              <input id="searchPayments" type="search" placeholder="Buscar contrato, documento ou descrição">
+              <input id="filterPaymentMonth" type="month" aria-label="Filtrar por competência">
+              <button id="clearPaymentFilters" class="btn subtle" type="button">Limpar filtros</button>
+              <span id="countPayments" class="muted">0 pagamentos</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Data</th><th>Contrato</th><th>Competência</th><th>Documento / descrição</th><th>Valor</th><th>Ações</th></tr></thead>
+                <tbody id="rowsPayments"><tr><td colspan="6">Carregando...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- PENDÊNCIAS -->
+        <section class="view" id="view-pending" hidden>
+          <div class="page-intro">
+            <h3>Pendências administrativas e financeiras</h3>
+            <p>Acompanhe prazos, observações e resolução das pendências.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Lista de pendências</h3>
+              <button class="btn primary" data-action="new-pending">+ Nova pendência</button>
+            </div>
+            <div class="toolbar">
+              <input id="searchPending" type="search" placeholder="Buscar pendência ou contrato">
+              <select id="filterPendingStatus">
+                <option value="aberto">Em aberto</option>
+                <option value="concluido">Concluídas</option>
+                <option value="todos">Todas</option>
+              </select>
+              <span id="countPending" class="muted">0 pendências</span>
+            </div>
+            <div id="pendingCards"><p class="muted">Carregando...</p></div>
+          </section>
+        </section>
+
+        <!-- ORÇAMENTO -->
+        <section class="view" id="view-budget" hidden>
+          <div class="page-intro">
+            <h3>Orçamento e PLOA</h3>
+            <p>Consulte os valores de planejamento registrados nos contratos e os pagamentos lançados.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Execução dos valores informados</h3></div>
+            <div class="grid grid-3" id="budgetSummary">
+              <article class="summary-card"><span>PLOA informado</span><strong>R$ 0,00</strong></article>
+              <article class="summary-card"><span>Pago em 2026</span><strong>R$ 0,00</strong></article>
+              <article class="summary-card"><span>Contratos</span><strong>0</strong></article>
+            </div>
+            <p class="muted" style="margin-top:20px">Percentual pago em relação ao PLOA informado</p>
+            <strong id="budgetPercent">—</strong>
+            <div class="progress"><div id="budgetBar"></div></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Detalhamento por contrato</h3></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Fornecedor / contrato</th><th>Gasto 2025</th><th>PLOA 2026</th><th>Pago em 2026</th><th>Execução</th><th>Ações</th></tr></thead>
+                <tbody id="rowsBudget"><tr><td colspan="6">Nenhum contrato cadastrado.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- FORNECEDORES -->
+        <section class="view" id="view-suppliers" hidden>
+          <div class="page-intro">
+            <h3>Cadastro de fornecedores</h3>
+            <p>Mantenha os dados de identificação e contato dos fornecedores.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Fornecedores cadastrados</h3>
+              <button class="btn primary" data-action="new-supplier">+ Novo fornecedor</button>
+            </div>
+            <div class="toolbar">
+              <input id="searchSuppliers" type="search" placeholder="Buscar nome ou CNPJ">
+              <span id="countSuppliers" class="muted">0 fornecedores</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Nome / razão social</th><th>CNPJ</th><th>Contato</th><th>Contratos</th><th>Ações</th></tr></thead>
+                <tbody id="rowsSuppliers"><tr><td colspan="5">Carregando...</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <!-- IMPORTAÇÃO E EXPORTAÇÃO -->
+        <section class="view" id="view-files" hidden>
+          <div class="page-intro">
+            <h3>Importação e exportação de dados</h3>
+            <p>Importe CSV com prévia antes de gravar os registros no banco.</p>
+          </div>
+
+          <div class="notice">
+            Revise os dados antes de confirmar. A importação registra o resultado e as linhas rejeitadas quando o banco permite a operação. Arquivos de sistemas governamentais podem exigir adaptação dos cabeçalhos.
+          </div>
+
+          <section class="panel">
+            <div class="panel-header"><h3>1. Escolha o destino</h3></div>
+            <div class="field" style="max-width:400px">
+              <label for="importType">Módulo de destino</label>
+              <select id="importType">
+                <option value="suppliers">Fornecedores</option>
+                <option value="contracts">Contratos</option>
+                <option value="payments">Pagamentos</option>
+                <option value="pendencias">Pendências</option>
+              </select>
+            </div>
+            <div class="toolbar" style="margin-top:14px">
+              <button class="btn secondary" type="button" data-template="suppliers">Modelo de fornecedores</button>
+              <button class="btn secondary" type="button" data-template="contracts">Modelo de contratos</button>
+              <button class="btn secondary" type="button" data-template="payments">Modelo de pagamentos</button>
+              <button class="btn secondary" type="button" data-template="pendencias">Modelo de pendências</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>2. Selecione o arquivo CSV</h3></div>
+            <div class="dropzone" id="csvDropzone" role="button" tabindex="0" aria-label="Selecionar ou arrastar arquivo CSV">
+              <strong>Selecione ou arraste um arquivo CSV</strong>
+              <p>Confira o cabeçalho, o delimitador e os dados antes de importar.</p>
+              <button class="btn secondary" type="button" id="chooseCsv" style="margin-top:15px">Escolher arquivo</button>
+            </div>
+            <input id="csvFile" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+            <p id="importMessage" class="muted" style="margin-top:12px"></p>
+          </section>
+
+          <section class="panel" id="importPreview" hidden>
+            <div class="panel-header"><h3>3. Conferir prévia</h3></div>
+            <div class="grid grid-3" id="importSummary"></div>
+            <div class="table-wrap" style="margin-top:15px">
+              <table id="previewTable"></table>
+            </div>
+            <p id="importErrors" class="error-box"></p>
+            <div class="form-actions">
+              <button class="btn subtle" type="button" id="cancelImport">Cancelar</button>
+              <button class="btn primary" type="button" id="confirmImport">Confirmar importação</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Backup e restauração</h3></div>
+            <p class="muted">O backup JSON contém registros da instituição carregada. Guarde-o em local protegido e evite compartilhá-lo, pois pode conter dados financeiros.</p>
+            <div class="toolbar">
+              <button type="button" class="btn secondary" id="backupButton">Exportar backup JSON</button>
+              <button type="button" class="btn subtle" id="restoreButton">Restaurar backup JSON</button>
+              <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+            </div>
+          </section>
+        </section>
+
+        <!-- CENTRAL DE DOCUMENTOS -->
+        <section class="view" id="view-documents" hidden>
+          <div class="page-intro">
+            <h3>Central de documentos</h3>
+            <p>Leia documentos no navegador, visualize planilhas e encaminhe dados tabulares ao importador.</p>
+          </div>
+
+          <div class="notice">
+            A extração de texto não substitui a conferência documental. PDFs digitalizados podem precisar de OCR. Evite enviar documentos com dados pessoais desnecessários.
+          </div>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Selecionar documento</h3></div>
+            <div class="dropzone" id="docsDropzone" role="button" tabindex="0" aria-label="Selecionar documento">
+              <strong>Arraste ou selecione um documento</strong>
+              <p>Formatos: CSV, TXT, XLSX, XLS, PDF e DOCX.</p>
+              <button class="btn secondary" id="docsChoose" type="button" style="margin-top:15px">Selecionar documento</button>
+            </div>
+            <input id="docsFile" type="file" accept=".csv,.txt,.xlsx,.xls,.pdf,.docx" hidden>
+            <p id="docsMessage" class="muted" style="margin-top:12px">Nenhum documento selecionado.</p>
+          </section>
+
+          <section class="panel" id="docsResult" hidden>
+            <div class="panel-header">
+              <div>
+                <h3 id="docsFilename">Documento</h3>
+                <p id="docsMetadata" class="muted"></p>
+              </div>
+              <button class="btn subtle" id="docsClear" type="button">Limpar</button>
+            </div>
+
+            <div id="docsSpreadsheet" hidden>
+              <div class="toolbar">
+                <label class="field" style="flex:1">
+                  <span>Aba da planilha</span>
+                  <select id="docsSheetSelect"><option value="0">Planilha</option></select>
+                </label>
+                <span class="muted" id="docsSheetInfo"></span>
+              </div>
+              <div class="table-wrap">
+                <table id="docsTable"></table>
+              </div>
+              <div class="field" style="margin-top:16px;max-width:400px">
+                <label for="docsTarget">Enviar tabela para</label>
+                <select id="docsTarget">
+                  <option value="suppliers">Fornecedores</option>
+                  <option value="contracts">Contratos</option>
+                  <option value="payments">Pagamentos</option>
+                  <option value="pendencias">Pendências</option>
+                </select>
+              </div>
+              <div class="form-actions">
+                <button class="btn primary" id="docsToImporter" type="button">Enviar ao importador</button>
+              </div>
+            </div>
+
+            <div id="docsTextResult" hidden>
+              <div class="field">
+                <label for="docsText">Texto extraído</label>
+                <textarea id="docsText" rows="14"></textarea>
+              </div>
+              <p id="docsTextNote" class="muted"></p>
+              <div class="toolbar">
+                <button class="btn secondary" id="docsCopy" type="button">Copiar texto</button>
+                <button class="btn subtle" id="docsExportText" type="button">Exportar TXT</button>
+              </div>
+              <h4>Informações identificadas (revisar manualmente)</h4>
+              <div id="docsDetected" class="grid grid-2"></div>
+            </div>
+          </section>
+        </section>
+
+        <!-- CONFIGURAÇÕES -->
+        <section class="view" id="view-settings" hidden>
+          <div class="page-intro">
+            <h3>Configurações e acesso</h3>
+            <p>Informações sobre a sessão, a instituição e os cuidados com os dados.</p>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Sessão atual</h3></div>
+            <p id="storageInfoDetail" class="muted">As informações da sessão aparecerão no cabeçalho após a autenticação.</p>
+            <div class="notice">
+              O acesso aos registros é controlado pela autenticação do Supabase e pelas políticas de segurança do banco (RLS). Não compartilhe chaves secretas nem credenciais.
+            </div>
+            <button type="button" class="btn subtle" id="refreshDataButton">Atualizar dados</button>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Sobre o sistema</h3></div>
+            <p><strong>Controle Financeiro SUREG-PA</strong></p>
+            <p class="muted">Interface de gestão de contratos, fornecedores, pagamentos, pendências e importações.</p>
+            <p class="muted">A implantação em ambiente institucional exige testes de segurança, validação das permissões, revisão dos dados importados e política de backup.</p>
+          </section>
+        </section>
       </div>
+    </main>
+  </div>
 
-      <article class="panel">
+  <!-- DIÁLOGO: FORNECEDOR -->
+  <dialog id="supplierDialog">
+    <div class="dialog-top">
+      <h2 id="supplierDialogTitle">Novo fornecedor</h2>
+      <button type="button" data-close="supplierDialog" aria-label="Fechar">×</button>
+    </div>
+    <form id="supplierForm">
+      <div class="field-grid">
+        <div class="field wide">
+          <label for="supplierName">Razão social / nome *</label>
+          <input id="supplierName" name="nome" required maxlength="250">
+        </div>
+        <div class="field">
+          <label for="supplierCnpj">CNPJ</label>
+          <input id="supplierCnpj" name="cnpj" inputmode="numeric" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="field">
+          <label for="supplierEmail">E-mail</label>
+          <input id="supplierEmail" name="email" type="email">
+        </div>
+        <div class="field">
+          <label for="supplierPhone">Telefone</label>
+          <input id="supplierPhone" name="telefone" type="tel">
+        </div>
+        <div class="field wide">
+          <label for="supplierNotes">Observações</label>
+          <textarea id="supplierNotes" name="observacoes"></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn subtle" data-close="supplierDialog">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar fornecedor</button>
+      </div>
+    </form>
+  </dialog>
 
-        <div class="toolbar">
-          <input type="search" id="searchContracts"
-            placeholder="Buscar contrato, fornecedor, processo ou objeto"
-            aria-label="Buscar contratos">
-
-          <select id="filterContractStatus" aria-label="Filtrar vigência">
-            <option value="todos">Todas as situações</option>
-            <option value="Vigente">Vigentes</option>
-            <option value="A iniciar">A iniciar</option>
-            <option value="Encerrado">Encerrados</option>
-            <option value="Sem vigência">Sem vigência</option>
+  <!-- DIÁLOGO: CONTRATO -->
+  <dialog id="contractDialog">
+    <div class="dialog-top">
+      <h2 id="contractDialogTitle">Novo contrato</h2>
+      <button type="button" data-close="contractDialog" aria-label="Fechar">×</button>
+    </div>
+    <form id="contractForm">
+      <div class="field-grid">
+        <div class="field">
+          <label for="contractNumber">Número do contrato *</label>
+          <input id="contractNumber" name="numero" required>
+        </div>
+        <div class="field">
+          <label for="contractProcess">Número do processo</label>
+          <input id="contractProcess" name="processo">
+        </div>
+        <div class="field wide">
+          <label for="contractSupplier">Fornecedor</label>
+          <select id="contractSupplier" name="supplier">
+            <option value="">Selecione um fornecedor</option>
           </select>
-
-          <span class="count" id="countContracts"></span>
         </div>
-
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Contrato / processo</th>
-                <th>Fornecedor</th>
-                <th>Vigência</th>
-                <th>Valor global</th>
-                <th>Situação</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="rowsContracts"></tbody>
-          </table>
+        <div class="field wide">
+          <label for="contractObject">Objeto do contrato</label>
+          <textarea id="contractObject" name="objeto"></textarea>
         </div>
-
-      </article>
-    </section>
-
-    <!-- PAGAMENTOS -->
-    <section class="view" id="view-payments" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Pagamentos</h2>
-          <p>Controle de valores pagos por contrato e competência.</p>
+        <div class="field">
+          <label for="contractValue">Valor global (R$) *</label>
+          <input id="contractValue" name="valorGlobal" type="number" min="0" step="0.01" required>
         </div>
-        <button type="button" class="btn primary" data-action="new-payment">
-          + Registrar pagamento
-        </button>
+        <div class="field">
+          <label for="contractUnit">Unidade</label>
+          <input id="contractUnit" name="unidade">
+        </div>
+        <div class="field">
+          <label for="contractStart">Início da vigência</label>
+          <input id="contractStart" name="vigenciaInicial" type="date">
+        </div>
+        <div class="field">
+          <label for="contractEnd">Fim da vigência</label>
+          <input id="contractEnd" name="vigenciaFinal" type="date">
+        </div>
+        <div class="field">
+          <label for="contractType">Tipo</label>
+          <input id="contractType" name="tipo">
+        </div>
+        <div class="field">
+          <label for="contractModality">Modalidade</label>
+          <input id="contractModality" name="modalidade">
+        </div>
+        <div class="field">
+          <label for="contractND">Natureza da despesa (ND)</label>
+          <input id="contractND" name="nd">
+        </div>
+        <div class="field">
+          <label for="contractCategory">Categoria</label>
+          <input id="contractCategory" name="categoria">
+        </div>
+        <div class="field">
+          <label for="contractManager">Gestor</label>
+          <input id="contractManager" name="gestor">
+        </div>
+        <div class="field">
+          <label for="contractFiscalAdm">Fiscal administrativo</label>
+          <input id="contractFiscalAdm" name="fiscalAdm">
+        </div>
+        <div class="field">
+          <label for="contractFiscalTech">Fiscal técnico</label>
+          <input id="contractFiscalTech" name="fiscalTecnico">
+        </div>
+        <div class="field">
+          <label for="contractSubstitute">Fiscal suplente</label>
+          <input id="contractSubstitute" name="suplente">
+        </div>
+        <div class="field">
+          <label for="contractGuarantee">Garantia</label>
+          <input id="contractGuarantee" name="garantia">
+        </div>
+        <div class="field">
+          <label for="contractPosts">Quantidade de postos</label>
+          <input id="contractPosts" name="postos" type="number" min="0" step="1">
+        </div>
+        <div class="field">
+          <label for="contractSalary">Salário de referência (R$)</label>
+          <input id="contractSalary" name="salario" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractCharges">Encargos (%)</label>
+          <input id="contractCharges" name="encargos" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractMaterials">Materiais (R$)</label>
+          <input id="contractMaterials" name="materiais" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractCostPost">Custo por posto (R$)</label>
+          <input id="contractCostPost" name="custoPosto" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractCct">Estimativa calculada</label>
+          <input id="cctEstimate" readonly placeholder="Calculada ao preencher os custos">
+        </div>
+        <div class="field">
+          <label for="contractSpendMonthly">Gasto mensal 2025 (R$)</label>
+          <input id="contractSpendMonthly" name="gastoMensal2025" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractSpendAnnual">Gasto anual 2025 (R$)</label>
+          <input id="contractSpendAnnual" name="gastoAnual2025" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractSpendTotal">Total gasto 2025 (R$)</label>
+          <input id="contractSpendTotal" name="totalGasto2025" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractPloa">PLOA 2026 (R$)</label>
+          <input id="contractPloa" name="ploa2026" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="contractQtyCurrent">Quantidade atual</label>
+          <input id="contractQtyCurrent" name="qtdAtual" type="number" min="0" step="1">
+        </div>
+        <div class="field">
+          <label for="contractQtyAnalysis">Quantidade em análise</label>
+          <input id="contractQtyAnalysis" name="qtdAnalise" type="number" min="0" step="1">
+        </div>
+        <div class="field">
+          <label for="contractCostType">Tipo de custo</label>
+          <input id="contractCostType" name="tipoCusto">
+        </div>
+        <div class="field">
+          <label for="contractSource">Fonte de recurso</label>
+          <input id="contractSource" name="fonte_recurso">
+        </div>
+        <div class="field wide">
+          <label for="contractNotes">Observações</label>
+          <textarea id="contractNotes" name="observacoes"></textarea>
+        </div>
       </div>
-
-      <article class="panel">
-        <div class="toolbar">
-
-          <input type="search" id="searchPayments"
-            placeholder="Buscar fornecedor, contrato, NF ou referência"
-            aria-label="Buscar pagamentos">
-
-          <input type="month" id="filterPaymentMonth"
-            aria-label="Filtrar competência">
-
-          <button type="button" class="btn subtle" id="clearPaymentFilters">
-            Limpar filtros
-          </button>
-
-          <span class="count" id="countPayments"></span>
-        </div>
-
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Fornecedor / contrato</th>
-                <th>Competência</th>
-                <th>NF / referência</th>
-                <th>Valor pago</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="rowsPayments"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
-
-    <!-- PENDÊNCIAS -->
-    <section class="view" id="view-pending" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Pendências financeiras</h2>
-          <p>Obrigações em acompanhamento até a conclusão.</p>
-        </div>
-        <button type="button" class="btn primary" data-action="new-pending">
-          + Nova pendência
-        </button>
+      <div class="form-actions">
+        <button type="button" class="btn subtle" data-close="contractDialog">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar contrato</button>
       </div>
+    </form>
+  </dialog>
 
-      <article class="panel">
+  <!-- DIÁLOGO: PAGAMENTO -->
+  <dialog id="paymentDialog">
+    <div class="dialog-top">
+      <h2 id="paymentDialogTitle">Novo pagamento</h2>
+      <button type="button" data-close="paymentDialog" aria-label="Fechar">×</button>
+    </div>
+    <form id="paymentForm">
+      <div class="field-grid">
+        <div class="field wide">
+          <label for="paymentContract">Contrato *</label>
+          <select id="paymentContract" name="contractId" data-contract-select required>
+            <option value="">Selecione um contrato</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="paymentDate">Data do pagamento</label>
+          <input id="paymentDate" name="data" type="date">
+        </div>
+        <div class="field">
+          <label for="paymentCompetence">Competência</label>
+          <input id="paymentCompetence" name="competencia" type="month">
+        </div>
+        <div class="field">
+          <label for="paymentValue">Valor (R$) *</label>
+          <input id="paymentValue" name="valor" type="number" min="0.01" step="0.01" required>
+        </div>
+        <div class="field">
+          <label for="paymentInvoice">Nota fiscal / documento</label>
+          <input id="paymentInvoice" name="notaFiscal">
+        </div>
+        <div class="field">
+          <label for="paymentCommitment">Empenho</label>
+          <input id="paymentCommitment" name="empenho">
+        </div>
+        <div class="field">
+          <label for="paymentProcess">Processo do pagamento</label>
+          <input id="paymentProcess" name="processoPagamento">
+        </div>
+        <div class="field wide">
+          <label for="paymentDescription">Descrição</label>
+          <textarea id="paymentDescription" name="descricao"></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn subtle" data-close="paymentDialog">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar pagamento</button>
+      </div>
+    </form>
+  </dialog>
 
-        <div class="toolbar">
-          <input type="search" id="searchPending"
-            placeholder="Buscar fornecedor, processo ou referência"
-            aria-label="Buscar pendências">
-
-          <select id="filterPendingStatus" aria-label="Filtrar situação">
+  <!-- DIÁLOGO: PENDÊNCIA -->
+  <dialog id="pendingDialog">
+    <div class="dialog-top">
+      <h2 id="pendingDialogTitle">Nova pendência</h2>
+      <button type="button" data-close="pendingDialog" aria-label="Fechar">×</button>
+    </div>
+    <form id="pendingForm">
+      <div class="field-grid">
+        <div class="field wide">
+          <label for="pendingContract">Contrato relacionado</label>
+          <select id="pendingContract" name="contractId" data-contract-select>
+            <option value="">Selecione um contrato</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pendingReference">Referência</label>
+          <input id="pendingReference" name="referencia">
+        </div>
+        <div class="field">
+          <label for="pendingCompetence">Competência</label>
+          <input id="pendingCompetence" name="competencia" type="month">
+        </div>
+        <div class="field">
+          <label for="pendingValue">Valor relacionado (R$)</label>
+          <input id="pendingValue" name="valor" type="number" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label for="pendingDue">Prazo</label>
+          <input id="pendingDue" name="vencimento" type="date">
+        </div>
+        <div class="field">
+          <label for="pendingStatus">Situação</label>
+          <select id="pendingStatus" name="status">
             <option value="aberto">Em aberto</option>
-            <option value="concluido">Concluídas</option>
-            <option value="todos">Todas</option>
+            <option value="concluido">Concluída</option>
           </select>
-
-          <span class="count" id="countPending"></span>
         </div>
-
-        <div id="pendingCards" class="pending-list"></div>
-
-      </article>
-    </section>
-
-    <!-- ORÇAMENTO -->
-    <section class="view" id="view-budget" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Orçamento e PLOA</h2>
-          <p>Comparativo dos valores informados por contrato.</p>
+        <div class="field wide">
+          <label for="pendingNotes">Descrição / observações</label>
+          <textarea id="pendingNotes" name="observacoes"></textarea>
         </div>
       </div>
-
-      <div id="budgetSummary" class="summary-grid"></div>
-
-      <article class="panel">
-        <div class="panel-heading">
-          <h3>Pagamentos em relação ao PLOA 2026</h3>
-          <strong id="budgetPercent" class="muted">—</strong>
-        </div>
-        <div class="progress">
-          <div id="budgetBar"></div>
-        </div>
-        <p class="hint">
-          O PLOA é referência de planejamento.
-          Não representa saldo disponível, empenhado ou liquidado.
-        </p>
-      </article>
-
-      <article class="panel">
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Fornecedor / contrato</th>
-                <th>Gasto em 2025</th>
-                <th>PLOA 2026</th>
-                <th>Pago em 2026</th>
-                <th>Relação</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="rowsBudget"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
-
-    <!-- FORNECEDORES -->
-    <section class="view" id="view-suppliers" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Fornecedores</h2>
-          <p>Empresas cadastradas e vínculos contratuais.</p>
-        </div>
-        <button type="button" class="btn primary" data-action="new-supplier">
-          + Novo fornecedor
-        </button>
+      <div class="form-actions">
+        <button type="button" class="btn subtle" data-close="pendingDialog">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar pendência</button>
       </div>
+    </form>
+  </dialog>
 
-      <article class="panel">
-        <div class="toolbar">
-          <input type="search" id="searchSuppliers"
-            placeholder="Buscar por razão social ou CNPJ"
-            aria-label="Buscar fornecedores">
+  <div id="toast" role="status" aria-live="polite"></div>
 
-          <span class="count" id="countSuppliers"></span>
-        </div>
+  <!-- Apenas um script principal, carregado como módulo. -->
+  <script type="module" src="src/app.js"></script>
 
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Razão social</th>
-                <th>CNPJ</th>
-                <th>Contato</th>
-                <th>Contratos</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody id="rowsSuppliers"></tbody>
-          </table>
-        </div>
-      </article>
-    </section>
+  <script>
+    document.getElementById('refreshDataButton')?.addEventListener('click', () => {
+      window.location.reload();
+    });
 
-    <!-- IMPORTAÇÃO E EXPORTAÇÃO DE CADASTROS -->
-    <section class="view" id="view-files" hidden>
+    const observer = new MutationObserver(() => {
+      const source = document.getElementById('storageInfo');
+      const target = document.getElementById('storageInfoDetail');
 
-      <div class="section-heading">
-        <div>
-          <h2>Importação e exportação</h2>
-          <p>Importe CSV, confira registros e exporte planilhas.</p>
-        </div>
-      </div>
+      if (source && target) target.textContent = source.textContent;
+    });
 
-      <article class="panel importer">
+    const info = document.getElementById('storageInfo');
 
-        <div class="panel-heading">
-          <div>
-            <h3>Importar CSV ou TXT tabular</h3>
-            <p>Separadores: ponto e vírgula, vírgula ou tabulação.</p>
-          </div>
-        </div>
-
-        <div class="import-tools">
-
-          <label>
-            Tipo de registro
-            <select id="importType">
-              <option value="suppliers">Fornecedores</option>
-              <option value="contracts">Contratos</option>
-              <option value="payments">Pagamentos</option>
-              <option value="pendencias">Pendências</option>
-            </select>
-          </label>
-
-          <button type="button" class="btn primary" id="chooseCsv">
-            ↑ Selecionar arquivo
-          </button>
-
-          <input type="file" id="csvFile"
-            accept=".csv,.txt,text/csv,text/plain" hidden>
-        </div>
-
-        <div class="dropzone" id="csvDropzone"
-          role="button" tabindex="0">
-          Arraste um CSV até aqui ou clique para procurar
-        </div>
-
-        <p class="hint" id="importMessage" aria-live="polite">
-          Importe fornecedores, depois contratos e, por fim,
-          pagamentos e pendências.
-        </p>
-
-        <div id="importPreview" class="import-preview" hidden>
-          <h3>Conferência antes de salvar</h3>
-
-          <div id="importSummary" class="summary-grid"></div>
-
-          <div class="table-scroll">
-            <table id="previewTable"></table>
-          </div>
-
-          <pre id="importErrors" class="import-errors"></pre>
-
-          <div class="button-row">
-            <button type="button" class="btn secondary" id="cancelImport">
-              Cancelar
-            </button>
-            <button type="button" class="btn primary" id="confirmImport">
-              Confirmar importação
-            </button>
-          </div>
-        </div>
-
-      </article>
-
-      <article class="panel">
-        <h3>Exportar cadastros</h3>
-        <p class="muted">
-          Os arquivos exportados podem ser reimportados no CAF.
-        </p>
-
-        <div class="button-row">
-          <button type="button" class="btn secondary" data-export="suppliers">
-            ↓ Fornecedores
-          </button>
-          <button type="button" class="btn secondary" data-export="contracts">
-            ↓ Contratos
-          </button>
-          <button type="button" class="btn secondary" data-export="payments">
-            ↓ Pagamentos
-          </button>
-          <button type="button" class="btn secondary" data-export="pendencias">
-            ↓ Pendências
-          </button>
-        </div>
-      </article>
-
-      <article class="panel">
-        <h3>Modelos CSV para preenchimento</h3>
-
-        <div class="button-row">
-          <button type="button" class="btn subtle" data-template="suppliers">
-            Modelo fornecedores
-          </button>
-          <button type="button" class="btn subtle" data-template="contracts">
-            Modelo contratos
-          </button>
-          <button type="button" class="btn subtle" data-template="payments">
-            Modelo pagamentos
-          </button>
-          <button type="button" class="btn subtle" data-template="pendencias">
-            Modelo pendências
-          </button>
-        </div>
-      </article>
-
-    </section>
-
-    <!-- NOVA ABA: CENTRAL DE DOCUMENTOS -->
-    <section class="view" id="view-documents" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Central de Documentos</h2>
-          <p>
-            Leitura e conferência de arquivos Excel, Word,
-            PDF, CSV e TXT.
-          </p>
-        </div>
-      </div>
-
-      <article class="panel docs-panel">
-
-        <div class="panel-heading">
-          <div>
-            <h3>Selecionar documento</h3>
-            <p>
-              Formatos: .xlsx, .xls, .docx, .pdf, .csv e .txt
-            </p>
-          </div>
-        </div>
-
-        <div class="button-row">
-          <button type="button" class="btn primary" id="docsChoose">
-            ↑ Escolher arquivo
-          </button>
-
-          <button type="button" class="btn secondary" id="docsClear">
-            Limpar
-          </button>
-
-          <input id="docsFile" type="file"
-            accept=".xlsx,.xls,.docx,.pdf,.csv,.txt" hidden>
-        </div>
-
-        <div id="docsDropzone" class="dropzone docs-dropzone"
-          role="button" tabindex="0">
-          Arraste o documento até aqui ou clique para selecionar
-        </div>
-
-        <p class="hint" id="docsMessage" aria-live="polite">
-          Os arquivos são lidos no navegador.
-          Os originais não são enviados nem armazenados pelo CAF.
-        </p>
-
-      </article>
-
-      <!-- PRÉVIA DO DOCUMENTO -->
-      <article class="panel" id="docsResult" hidden>
-
-        <div class="panel-heading">
-          <div>
-            <h3 id="docsFilename">Documento</h3>
-            <p id="docsMetadata"></p>
-          </div>
-        </div>
-
-        <!-- PRÉVIA EXCEL / CSV -->
-        <div id="docsSpreadsheet" hidden>
-
-          <div class="docs-toolbar">
-
-            <label for="docsSheetSelect">Aba:</label>
-            <select id="docsSheetSelect"></select>
-
-            <label for="docsTarget">Enviar para:</label>
-            <select id="docsTarget">
-              <option value="suppliers">Fornecedores</option>
-              <option value="contracts">Contratos</option>
-              <option value="payments">Pagamentos</option>
-              <option value="pendencias">Pendências</option>
-            </select>
-
-            <button type="button" class="btn primary"
-              id="docsToImporter">
-              Conferir registros no importador →
-            </button>
-
-          </div>
-
-          <p class="hint" id="docsSheetInfo"></p>
-
-          <div class="table-scroll docs-table-scroll">
-            <table id="docsTable"></table>
-          </div>
-
-          <p class="hint">
-            A importação só será gravada depois da conferência
-            e confirmação na aba Importar e exportar.
-          </p>
-
-        </div>
-
-        <!-- PRÉVIA TXT / WORD / PDF -->
-        <div id="docsTextResult" hidden>
-
-          <div class="button-row">
-            <button type="button" class="btn secondary" id="docsCopy">
-              Copiar texto
-            </button>
-
-            <button type="button" class="btn secondary" id="docsExportText">
-              Exportar texto TXT
-            </button>
-          </div>
-
-          <h3 class="docs-subheading">Informações identificadas</h3>
-
-          <div id="docsDetected" class="docs-found"></div>
-
-          <label for="docsText" class="docs-text-label">
-            Texto extraído
-          </label>
-
-          <textarea id="docsText" readonly rows="14"></textarea>
-
-          <p id="docsTextNote" class="hint"></p>
-
-        </div>
-
-      </article>
-
-      <article class="panel">
-        <h3>Sobre a leitura documental</h3>
-        <p class="muted">
-          Excel, CSV e TXT tabular permitem conferir tabelas
-          para posterior importação nos cadastros.
-          Word, PDF e TXT livre permitem extrair texto e
-          localizar possíveis CNPJs, processos, datas e valores.
-          Nenhum documento cria automaticamente pagamentos,
-          contratos ou fornecedores. PDFs digitalizados
-          podem precisar de OCR, ainda não implementado.
-        </p>
-      </article>
-
-    </section>
-
-    <!-- CONFIGURAÇÕES -->
-    <section class="view" id="view-settings" hidden>
-
-      <div class="section-heading">
-        <div>
-          <h2>Configurações</h2>
-          <p>Backup, restauração e armazenamento.</p>
-        </div>
-      </div>
-
-      <article class="panel settings-panel">
-        <h3>Armazenamento atual</h3>
-
-        <p id="storageInfo" class="muted"></p>
-
-        <p class="hint">
-          Os cadastros são armazenados neste navegador.
-          Ainda não há servidor Supabase, login ou
-          sincronização entre computadores.
-        </p>
-
-        <div class="button-row">
-          <button type="button" class="btn primary" id="backupButton">
-            ↓ Exportar backup JSON
-          </button>
-
-          <button type="button" class="btn secondary" id="restoreButton">
-            Restaurar backup
-          </button>
-
-          <input type="file" id="restoreFile"
-            accept=".json,application/json" hidden>
-        </div>
-      </article>
-
-    </section>
-  </main>
-</div>
-
-<!-- FORMULÁRIO DE FORNECEDOR -->
-<dialog id="supplierDialog" class="dialog">
-  <form id="supplierForm">
-
-    <div class="dialog-heading">
-      <h2 id="supplierDialogTitle">Fornecedor</h2>
-      <button type="button" class="dialog-close"
-        data-close="supplierDialog" aria-label="Fechar">×</button>
-    </div>
-
-    <div class="form-grid">
-      <label class="full">
-        Razão social *
-        <input name="nome" required maxlength="160">
-      </label>
-
-      <label>
-        CNPJ *
-        <input name="cnpj" required maxlength="18"
-          inputmode="numeric" placeholder="00.000.000/0000-00">
-      </label>
-
-      <label>
-        Telefone
-        <input name="telefone" maxlength="30">
-      </label>
-
-      <label class="full">
-        E-mail
-        <input name="email" type="email" maxlength="160">
-      </label>
-
-      <label class="full">
-        Observações
-        <textarea name="observacoes" rows="3"></textarea>
-      </label>
-    </div>
-
-    <div class="dialog-actions">
-      <button type="button" class="btn secondary"
-        data-close="supplierDialog">Cancelar</button>
-      <button type="submit" class="btn primary">Salvar fornecedor</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- FORMULÁRIO DE CONTRATO -->
-<dialog id="contractDialog" class="dialog wide-dialog">
-  <form id="contractForm">
-
-    <div class="dialog-heading">
-      <div>
-        <h2 id="contractDialogTitle">Contrato</h2>
-        <p>Identificação, vigência, valores e fiscalização.</p>
-      </div>
-      <button type="button" class="dialog-close"
-        data-close="contractDialog" aria-label="Fechar">×</button>
-    </div>
-
-    <div class="form-section-title">Identificação</div>
-
-    <div class="form-grid">
-      <label class="full">
-        Fornecedor *
-        <select id="contractSupplier" name="supplier" required></select>
-      </label>
-
-      <label>
-        Número do contrato
-        <input name="numero" maxlength="60">
-      </label>
-
-      <label>
-        Processo contratual *
-        <input name="processo" required maxlength="80">
-      </label>
-
-      <label>
-        Vigência inicial *
-        <input name="vigenciaInicial" type="date" required>
-      </label>
-
-      <label>
-        Vigência final *
-        <input name="vigenciaFinal" type="date" required>
-      </label>
-
-      <label class="full">
-        Objeto
-        <textarea name="objeto" rows="3"></textarea>
-      </label>
-    </div>
-
-    <div class="form-section-title">Valores e planejamento</div>
-
-    <div class="form-grid">
-      <label>
-        Valor global (R$)
-        <input name="valorGlobal" type="number" min="0" step="0.01">
-      </label>
-
-      <label>
-        Custo mensal por posto (R$)
-        <input name="custoPosto" type="number" min="0" step="0.01">
-      </label>
-
-      <label>
-        Gasto anual 2025 (R$)
-        <input name="gastoAnual2025" type="number" min="0" step="0.01">
-      </label>
-
-      <label>
-        PLOA 2026 (R$)
-        <input name="ploa2026" type="number" min="0" step="0.01">
-      </label>
-    </div>
-
-    <details class="advanced">
-      <summary>Gestão, fiscalização e cálculo da CCT</summary>
-
-      <div class="form-grid">
-        <label>Unidade<input name="unidade"></label>
-        <label>Tipo de contrato<input name="tipo"></label>
-        <label>Modalidade<input name="modalidade"></label>
-        <label>Natureza de despesa<input name="nd"></label>
-        <label>Gestor<input name="gestor"></label>
-        <label>Fiscal administrativo<input name="fiscalAdm"></label>
-        <label>Fiscal técnico<input name="fiscalTecnico"></label>
-        <label>Suplente<input name="suplente"></label>
-        <label>Garantia<input name="garantia"></label>
-        <label>Tipo de custo<input name="tipoCusto"></label>
-        <label>Categoria<input name="categoria"></label>
-
-        <label>
-          Quantidade de postos
-          <input name="postos" type="number" min="0" step="1">
-        </label>
-
-        <label>
-          Salário-base CCT (R$)
-          <input name="salario" type="number" min="0" step="0.01">
-        </label>
-
-        <label>
-          Encargos (%)
-          <input name="encargos" type="number" min="0" step="0.01">
-        </label>
-
-        <label>
-          Materiais mensais (R$)
-          <input name="materiais" type="number" min="0" step="0.01">
-        </label>
-
-        <label>
-          Estimativa mensal
-          <input id="cctEstimate" readonly>
-        </label>
-
-        <label>
-          Gasto mensal 2025 (R$)
-          <input name="gastoMensal2025" type="number" min="0" step="0.01">
-        </label>
-
-        <label>
-          Total gasto 2025 (R$)
-          <input name="totalGasto2025" type="number" min="0" step="0.01">
-        </label>
-
-        <label>
-          Quantidade atual
-          <input name="qtdAtual" type="number" min="0" step="1">
-        </label>
-
-        <label>
-          Quantidade em análise
-          <input name="qtdAnalise" type="number" min="0" step="1">
-        </label>
-
-        <label class="full">
-          Observações
-          <textarea name="observacoes" rows="3"></textarea>
-        </label>
-      </div>
-
-      <p class="hint">
-        Estimativa simplificada: salário × (1 + encargos %)
-        × postos + materiais. Não substitui a planilha de
-        custos e formação de preços.
-      </p>
-    </details>
-
-    <div class="dialog-actions">
-      <button type="button" class="btn secondary"
-        data-close="contractDialog">Cancelar</button>
-      <button type="submit" class="btn primary">Salvar contrato</button>
-    </div>
-
-  </form>
-</dialog>
-
-<!-- FORMULÁRIO DE PAGAMENTO -->
-<dialog id="paymentDialog" class="dialog">
-  <form id="paymentForm">
-
-    <div class="dialog-heading">
-      <h2 id="paymentDialogTitle">Pagamento</h2>
-      <button type="button" class="dialog-close"
-        data-close="paymentDialog" aria-label="Fechar">×</button>
-    </div>
-
-    <div class="form-grid">
-      <label class="full">
-        Contrato *
-        <select name="contractId" data-contract-select required></select>
-      </label>
-
-      <label>
-        Data do pagamento *
-        <input name="data" type="date" required>
-      </label>
-
-      <label>
-        Competência
-        <input name="competencia" type="month">
-      </label>
-
-      <label>
-        Valor pago (R$) *
-        <input name="valor" type="number" min="0.01"
-          step="0.01" required>
-      </label>
-
-      <label>
-        Número da NF
-        <input name="notaFiscal" maxlength="90">
-      </label>
-
-      <label>
-        Número do empenho
-        <input name="empenho" maxlength="90">
-      </label>
-
-      <label>
-        Processo de pagamento
-        <input name="processoPagamento" maxlength="90">
-      </label>
-
-      <label class="full">
-        Descrição / referência
-        <input name="descricao" maxlength="240">
-      </label>
-    </div>
-
-    <div class="dialog-actions">
-      <button type="button" class="btn secondary"
-        data-close="paymentDialog">Cancelar</button>
-      <button type="submit" class="btn primary">Salvar pagamento</button>
-    </div>
-
-  </form>
-</dialog>
-
-<!-- FORMULÁRIO DE PENDÊNCIA -->
-<dialog id="pendingDialog" class="dialog">
-  <form id="pendingForm">
-
-    <div class="dialog-heading">
-      <h2 id="pendingDialogTitle">Pendência</h2>
-      <button type="button" class="dialog-close"
-        data-close="pendingDialog" aria-label="Fechar">×</button>
-    </div>
-
-    <div class="form-grid">
-      <label class="full">
-        Contrato *
-        <select name="contractId" data-contract-select required></select>
-      </label>
-
-      <label>
-        Competência *
-        <input name="competencia" type="month" required>
-      </label>
-
-      <label>
-        Valor previsto (R$) *
-        <input name="valor" type="number" min="0"
-          step="0.01" required>
-      </label>
-
-      <label>
-        Referência documental
-        <input name="referencia" maxlength="130">
-      </label>
-
-      <label>
-        Prazo / vencimento
-        <input name="vencimento" type="date">
-      </label>
-
-      <label>
-        Situação
-        <select name="status">
-          <option value="aberto">Em aberto</option>
-          <option value="concluido">Concluída</option>
-        </select>
-      </label>
-
-      <label class="full">
-        Observações
-        <textarea name="observacoes" rows="3"></textarea>
-      </label>
-    </div>
-
-    <div class="dialog-actions">
-      <button type="button" class="btn secondary"
-        data-close="pendingDialog">Cancelar</button>
-      <button type="submit" class="btn primary">Salvar pendência</button>
-    </div>
-
-  </form>
-</dialog>
-
-<div id="toast" class="toast"
-  role="status" aria-live="polite"></div>
-
-<script type="module" src="./app.js"></script>
-
-  
+    if (info) {
+      observer.observe(info, { childList: true, subtree: true, characterData: true });
+    }
+  </script>
 </body>
 </html>
