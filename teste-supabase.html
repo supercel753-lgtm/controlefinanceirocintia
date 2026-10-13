@@ -1,0 +1,65 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teste Supabase - SUREGPA</title>
+</head>
+<body>
+  <h1>Teste de conexão — SUREGPA</h1>
+  <pre id="resultado">Testando...</pre>
+
+  <script type="module">
+    import { supabase } from './supabase.js';
+
+    const saida = document.getElementById('resultado');
+
+    async function testar() {
+      saida.textContent = 'Verificando sessão...';
+
+      try {
+        const { data: sessaoData, error: erroSessao } =
+          await supabase.auth.getSession();
+
+        if (erroSessao) throw erroSessao;
+
+        if (!sessaoData.session) {
+          saida.textContent =
+            'Conexão inicializada, mas não existe sessão autenticada neste navegador.\n' +
+            'Precisamos implementar o login antes de testar as permissões.';
+          return;
+        }
+
+        const { data: usuarioData, error: erroUsuario } =
+          await supabase.auth.getUser();
+
+        if (erroUsuario) throw erroUsuario;
+
+        const { data: instituicoes, error: erroInstituicoes } =
+          await supabase
+            .from('instituicoes')
+            .select('id, nome, codigo')
+            .eq('codigo', 'SUREGPA-TESTE-001');
+
+        if (erroInstituicoes) throw erroInstituicoes;
+
+        saida.textContent = JSON.stringify({
+          conexao: 'OK',
+          autenticacao: 'OK',
+          usuario: usuarioData.user.email,
+          leituraInstituicao: 'OK',
+          instituicoes
+        }, null, 2);
+
+      } catch (erro) {
+        saida.textContent =
+          'Falha no teste:\n' + (erro.message || String(erro));
+        console.error(erro);
+      }
+    }
+
+    testar();
+  </script>
+</body>
+</html>
