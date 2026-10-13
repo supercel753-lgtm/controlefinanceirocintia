@@ -21,9 +21,7 @@
 
   const clone = obj => JSON.parse(JSON.stringify(obj));
 
-  const uuid = () =>
-    crypto.randomUUID?.() ||
-    `caf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const uuid = () => crypto.randomUUID();
 
   const esc = value =>
     String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -152,320 +150,229 @@
   }
 
   // ========================================
-  // SUPABASE REST / POSTGREST
+  // SUPABASE — ESQUEMA REAL SUREG-PA
   // ========================================
-  // Chave PUBLICÁVEL. Nunca inclua uma chave secreta neste arquivo.
-  // Os nomes e colunas reais são descobertos via API, sem DDL e sem
-  // desativar RLS. Se o esquema for incompatível, a gravação é bloqueada.
+  // Exige a coluna caf_dados JSONB nas quatro tabelas (SQL separado).
+  // A chave publicável NÃO autoriza leitura/escrita sem RLS e sessão.
   const SB_URL = "https://bnzkgyymwlulsobbcdpp.supabase.co";
   const SB_KEY = "sb_publishable_i3JcVDLPefiXQUDwOZZQWA_6_R9m2Wx";
   const SB_REST = `${SB_URL}/rest/v1`;
-  // Edite apenas se houver mais de uma tabela compatível por cadastro.
-  // null = detectar automaticamente dentre os nomes indicados.
-  const TABLE_MAP = {
-    suppliers: null,
-    contracts: null,
-    payments: null,
-    pendencias: null
+  const TABLES = {
+    suppliers: { name: "suppliers", tenant: "instituicao_id" },
+    contracts: { name: "contracts", tenant: "instituicao_id" },
+    payments: { name: "payments", tenant: "institutionId" },
+    pendencias: { name: "pendencias", tenant: "instituicao_id" }
   };
-  const TABLE_CANDIDATES = {
-    suppliers: ["suppliers", "fornecedores"],
-    contracts: ["contracts", "contratos"],
-    payments: ["payments", "pagamentos"],
-    pendencias: ["pendencias", "pending", "pendings"]
-  };
-  const JSON_FIELDS = ["dados", "payload", "registro", "record", "conteudo"];
-  const AUTO_FIELDS = new Set([
-    "created_at", "updated_at", "created_by", "updated_by", "user_id"
-  ]);
-  const FIELD_ALIASES = {
-    supplier: ["supplier", "supplier_id", "fornecedor_id", "id_fornecedor", "fornecedor"],
-    contractId: ["contractId", "contract_id", "contrato_id", "id_contrato", "contrato"],
-    nome: ["nome", "razao_social", "nome_fornecedor"],
-    numero: ["numero", "numero_contrato", "n_contrato"],
-    processo: ["processo", "processo_sei", "numero_processo"],
-    vigenciaInicial: ["vigenciaInicial", "vigencia_inicial", "inicio_vigencia", "data_inicio"],
-    vigenciaFinal: ["vigenciaFinal", "vigencia_final", "fim_vigencia", "data_fim"],
-    valorGlobal: ["valorGlobal", "valor_global", "valor_total_contrato"],
-    custoPosto: ["custoPosto", "custo_posto"],
-    ploa2026: ["ploa2026", "ploa_2026"],
-    gastoAnual2025: ["gastoAnual2025", "gasto_anual_2025"],
-    gastoMensal2025: ["gastoMensal2025", "gasto_mensal_2025"],
-    totalGasto2025: ["totalGasto2025", "total_gasto_2025"],
-    fiscalAdm: ["fiscalAdm", "fiscal_adm", "fiscal_administrativo"],
-    fiscalTecnico: ["fiscalTecnico", "fiscal_tecnico"],
-    tipoCusto: ["tipoCusto", "tipo_custo"],
-    qtdAtual: ["qtdAtual", "qtd_atual"],
-    qtdAnalise: ["qtdAnalise", "qtd_analise"],
-    notaFiscal: ["notaFiscal", "nota_fiscal"],
-    processoPagamento: ["processoPagamento", "processo_pagamento"],
-    nd: ["nd", "natureza_despesa"],
-    cnpj: ["cnpj", "cnpj_fornecedor"],
-    competencia: ["competencia", "mes_competencia"]
-  };
-  const adapters = {};
+  // Informe somente o UUID da instituição autorizada. Não é credencial.
+  // Pode ser definido ANTES de carregar app.js no index.html:
+  // <script>window.SUREGPA_INSTITUICAO_ID = "UUID...";</script>
+  const INSTITUICAO_ID = String(window.SUREGPA_INSTITUICAO_ID || "").trim();
+  const PENDENCIA_CATEGORY = "caf_financeira";
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const adapters = Object.fromEntries(Object.entries(TABLES).map(([type, config]) => [
+    type, { table: config.name, tenant: config.tenant }
+  ]));
   let busy = false;
   let remoteLoaded = false;
 
-  function snake(name) {
-    return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-  }
-
-  function namesFor(field) {
-    return [...new Set([field, snake(field), ...(FIELD_ALIASES[field] || [])])];
-  }
-
   function explainError(error) {
-    const msg = error?.message || String(error);
-    if (/row.level.security|violates row.level|permission denied|not authorized|unauthorized|jwt/i.test(msg)) {
-      return "Permissão negada pelo Supabase (Auth/RLS). Não é seguro desativar a proteção: " + msg;
+    const message = error?.message || String(error);
+    if (/permission|rls|jwt|unauthorized|row.level.security|42501|403|401/i.test(message)) {
+      return "Acesso negado (Auth, GRANT ou RLS). Não remova as proteções: " + message;
     }
-    return msg;
+    return message;
   }
 
-  async function request(table, query = {}, options = {}) {
-    const url = new URL(table ? `${SB_REST}/${encodeURIComponent(table)}` : `${SB_REST}/`);
-    for (const [key, value] of Object.entries(query)) {
-      url.searchParams.set(key, String(value));
+  async function accessToken() {
+    // Compatível com futura tela Auth; NÃO coloque JWT fixo no repositório.
+    const client = window.suregpaSupabase || window.supabaseClient;
+    if (client?.auth?.getSession) {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw Error(`Falha ao consultar sessão: ${error.message}`);
+      if (data?.session?.access_token) return data.session.access_token;
+    }
+    if (typeof window.SUREGPA_ACCESS_TOKEN === "string" && window.SUREGPA_ACCESS_TOKEN.trim()) {
+      return window.SUREGPA_ACCESS_TOKEN.trim();
+    }
+    throw Error("É necessária uma sessão autenticada no Supabase para consultar dados financeiros. A chave publicável não concede acesso privado. Configure Supabase Auth e faça login antes de usar o banco.");
+  }
+
+  function validateTenant() {
+    if (!UUID_RE.test(INSTITUICAO_ID)) {
+      throw Error("Falta configurar o UUID da instituição em window.SUREGPA_INSTITUICAO_ID. Nenhum registro foi alterado.");
+    }
+  }
+
+  async function request(type, query = {}, options = {}) {
+    validateTenant();
+    const config = TABLES[type];
+    if (!config) throw Error(`Tipo de cadastro desconhecido: ${type}`);
+    const jwt = await accessToken();
+    const url = new URL(`${SB_REST}/${encodeURIComponent(config.name)}`);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
+    // Defesa adicional: nunca consultar/escrever fora da instituição selecionada.
+    if ((options.method || "GET") !== "POST") {
+      url.searchParams.set(config.tenant, `eq.${INSTITUICAO_ID}`);
+    }
+    if (type === "pendencias" && (options.method || "GET") !== "POST") {
+      url.searchParams.set("categoria", `eq.${PENDENCIA_CATEGORY}`);
     }
     const headers = {
       apikey: SB_KEY,
-      Accept: options.openApi ? "application/openapi+json" : "application/json",
+      Authorization: `Bearer ${jwt}`,
+      Accept: "application/json",
       ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
       ...(options.prefer ? { Prefer: options.prefer } : {})
     };
-    // Ao implantar login, utilize o JWT da sessão; a chave publicável NÃO é JWT.
-    const jwt = window.SUREGPA_ACCESS_TOKEN;
-    if (typeof jwt === "string" && jwt.trim()) {
-      headers.Authorization = `Bearer ${jwt.trim()}`;
-    }
     let response;
     try {
       response = await fetch(url.href, {
-        method: options.method || "GET",
-        headers,
+        method: options.method || "GET", headers,
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         cache: "no-store"
       });
     } catch (error) {
-      throw Error(`Falha de conexão com Supabase: ${error.message}`);
+      throw Error(`Falha de rede no Supabase: ${error.message}`);
     }
     const text = await response.text();
     let content = null;
     if (text) {
-      try { content = JSON.parse(text); }
-      catch { content = text; }
+      try { content = JSON.parse(text); } catch { content = text; }
     }
     if (!response.ok) {
       const message = content?.message || content?.error_description || content?.error || text || response.statusText;
-      const error = Error(`[${response.status}] ${message}`);
-      error.status = response.status;
-      error.code = content?.code || "";
-      throw error;
+      const err = Error(`[${response.status}] ${message}`);
+      err.code = content?.code || "";
+      err.status = response.status;
+      throw err;
     }
     return content;
   }
 
-  function missingTable(error) {
-    return error?.code === "PGRST205" ||
-      (error?.status === 404 && /table|relation|schema cache/i.test(error.message));
+  const finiteNumber = (value, name, fallback = 0) => {
+    if (value === undefined || value === null || value === "") return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw Error(`Valor inválido no campo ${name}.`);
+    return n;
+  };
+
+  // Convertendo APENAS campos conhecidos. Os campos extras permanecem no JSONB.
+  // Não reescrevemos status/ativo/timestamps de registros de outros módulos.
+  function fromRemote(type, raw) {
+    const payload = raw.caf_dados && typeof raw.caf_dados === "object" && !Array.isArray(raw.caf_dados)
+      ? clone(raw.caf_dados) : {};
+    if (type === "suppliers") {
+      return {
+        ...payload, id: String(raw.id), nome: raw.nome || "",
+        cnpj: raw.documento || "", telefone: raw.telefone || "",
+        email: raw.email || "", observacoes: raw.observacoes || ""
+      };
+    }
+    if (type === "contracts") {
+      return {
+        ...payload, id: String(raw.id), supplier: String(raw.fornecedor_id || ""),
+        numero: raw.numero || "", processo: raw.numero_processo || "",
+        objeto: raw.objeto || "", valorGlobal: String(raw.valor ?? 0),
+        vigenciaInicial: raw.data_inicio || "", vigenciaFinal: raw.data_fim || "",
+        observacoes: raw.observacoes || ""
+      };
+    }
+    if (type === "payments") {
+      return {
+        ...payload, id: String(raw.id), contractId: String(raw.contractId || ""),
+        numero: raw.numero || "", processo: raw.processo || "",
+        empresa: raw.empresa || "", cnpj: raw.cnpj || "",
+        data: raw.data || "", competencia: raw.competencia || "",
+        valor: String(raw.valor ?? 0), notaFiscal: raw.notaFiscal || "",
+        empenho: raw.empenho || "", processoPagamento: raw.processoPagamento || "",
+        descricao: raw.descricao || ""
+      };
+    }
+    if (type === "pendencias") {
+      return {
+        ...payload, id: String(raw.id), contractId: String(raw.contrato_id || payload.contractId || ""),
+        referencia: payload.referencia || raw.titulo || "",
+        vencimento: raw.prazo || payload.vencimento || "",
+        // Este é o status financeiro armazenado no JSONB. Não usamos o
+        // status da tabela de tarefas para evitar restrições conflitantes.
+        status: payload.status === "concluido" ? "concluido" : "aberto"
+      };
+    }
+    throw Error(`Tipo desconhecido: ${type}`);
   }
 
-  function missingColumn(error) {
-    return /column .*does not exist|could not find.*column|unknown column|column .*not found|PGRST200|PGRST204|42703/i.test(
-      `${error?.message || ""} ${error?.code || ""}`
-    );
+  function toRemote(type, row) {
+    if (!row?.id || !UUID_RE.test(row.id)) {
+      throw Error(`Identificador UUID inválido em ${type}: ${row?.id || "vazio"}.`);
+    }
+    const payload = clone(row);
+    delete payload.id;
+    const institution = INSTITUICAO_ID;
+    if (type === "suppliers") {
+      return {
+        id: row.id, instituicao_id: institution, nome: String(row.nome || ""),
+        documento: String(row.cnpj || "") || null,
+        tipo_documento: "CNPJ", telefone: row.telefone || null,
+        email: row.email || null, observacoes: row.observacoes || null,
+        caf_dados: payload
+      };
+    }
+    if (type === "contracts") {
+      if (!UUID_RE.test(row.supplier || "")) throw Error("Fornecedor inválido no contrato.");
+      return {
+        id: row.id, instituicao_id: institution, fornecedor_id: row.supplier,
+        numero: String(row.numero || ""), objeto: String(row.objeto || ""),
+        valor: finiteNumber(row.valorGlobal, "valorGlobal"),
+        numero_processo: row.processo || null,
+        data_inicio: row.vigenciaInicial || null, data_fim: row.vigenciaFinal || null,
+        observacoes: row.observacoes || null, caf_dados: payload
+      };
+    }
+    if (type === "payments") {
+      if (!UUID_RE.test(row.contractId || "")) throw Error("Contrato inválido no pagamento.");
+      return {
+        id: row.id, institutionId: institution, contractId: row.contractId,
+        numero: row.numero || null, processo: row.processo || null,
+        empresa: row.empresa || null, cnpj: row.cnpj || null,
+        data: row.data || null, competencia: row.competencia || null,
+        valor: finiteNumber(row.valor, "valor"),
+        notaFiscal: row.notaFiscal || null, empenho: row.empenho || null,
+        processoPagamento: row.processoPagamento || null,
+        descricao: row.descricao || null, caf_dados: payload
+      };
+    }
+    if (type === "pendencias") {
+      if (!UUID_RE.test(row.contractId || "")) throw Error("Contrato inválido na pendência.");
+      return {
+        id: row.id, instituicao_id: institution,
+        categoria: PENDENCIA_CATEGORY, contrato_id: row.contractId,
+        titulo: String(row.referencia || `Pendência financeira ${row.competencia || ""}`).trim(),
+        descricao: row.observacoes || null,
+        prazo: row.vencimento || null, caf_dados: payload
+      };
+    }
+    throw Error(`Tipo desconhecido: ${type}`);
   }
 
-  async function specMetadata() {
-    try {
-      const spec = await request(null, {}, { openApi: true });
-      return spec && typeof spec === "object" ? spec : null;
-    } catch (error) {
-      console.info("Metadados OpenAPI indisponíveis; usando inspeção não destrutiva.", error);
-      return null;
-    }
-  }
-
-  function schemaProperties(spec, table) {
-    const shape = spec?.definitions?.[table] || spec?.components?.schemas?.[table];
-    return shape?.properties && Object.keys(shape.properties).length
-      ? Object.keys(shape.properties)
-      : null;
-  }
-
-  async function probeColumns(table, type) {
-    const possible = new Set(["id", ...JSON_FIELDS, ...AUTO_FIELDS]);
-    for (const field of columns[type]) {
-      for (const name of namesFor(field)) possible.add(name);
-    }
-    // Verifica nomes de colunas por SELECT ... LIMIT 0, sem alterar registros.
-    async function group(list) {
-      if (!list.length) return [];
-      try {
-        await request(table, { select: list.join(","), limit: 0 });
-        return list;
-      } catch (error) {
-        if (!missingColumn(error)) throw error;
-        if (list.length === 1) return [];
-        const half = Math.floor(list.length / 2);
-        const left = await group(list.slice(0, half));
-        const right = await group(list.slice(half));
-        return left.concat(right);
-      }
-    }
-    return await group([...possible]);
-  }
-
-  function createAdapter(type, table, cols) {
-    const names = new Set(cols);
-    if (!names.has("id")) {
-      throw Error(`Tabela ${table} sem coluna id acessível.`);
-    }
-    const json = JSON_FIELDS.find(name => names.has(name)) || null;
-    const fields = {};
-    for (const field of columns[type]) {
-      const match = namesFor(field).find(name => names.has(name));
-      if (match) fields[field] = match;
-    }
-    const essential = {
-      suppliers: ["nome", "cnpj"],
-      contracts: ["supplier", "processo", "vigenciaInicial", "vigenciaFinal"],
-      payments: ["contractId", "data", "valor"],
-      pendencias: ["contractId", "competencia", "valor", "status"]
-    }[type];
-    if (!json && essential.some(field => !fields[field])) {
-      throw Error(`Tabela ${table} não possui as colunas essenciais de ${type} nem campo JSONB compatível.`);
-    }
-    // Se houver coluna externa de relacionamento, sempre a preenche, mesmo com JSONB.
-    return { table, names, fields, json };
-  }
-
-  async function fetchTableRows(table) {
+  async function fetchTableRows(type) {
     const all = [];
     const size = 500;
     for (let offset = 0; ; offset += size) {
-      const batch = await request(table, {
-        select: "*", order: "id.asc", limit: size, offset
-      });
-      if (!Array.isArray(batch)) throw Error(`Resposta inválida da tabela ${table}.`);
+      const batch = await request(type, { select: "*", order: "id.asc", limit: size, offset });
+      if (!Array.isArray(batch)) throw Error(`Resposta inválida para ${type}.`);
       all.push(...batch);
       if (batch.length < size) break;
-      if (offset >= 200000) throw Error(`Tabela ${table} excede o limite de leitura segura.`);
+      if (offset > 200000) throw Error(`A tabela ${type} excede o limite previsto.`);
     }
     return all;
   }
 
-  async function detectAdapter(type, spec) {
-    const candidates = TABLE_MAP[type]
-      ? [TABLE_MAP[type]]
-      : TABLE_CANDIDATES[type];
-    const failures = [];
-    for (const table of candidates) {
-      let rows;
-      try {
-        rows = await fetchTableRows(table);
-      } catch (error) {
-        if (missingTable(error)) continue;
-        throw Error(`Erro ao consultar ${table}: ${explainError(error)}`);
-      }
-      try {
-        const cols = schemaProperties(spec, table) ||
-          (rows.length ? Object.keys(rows[0]) : await probeColumns(table, type));
-        const adapter = createAdapter(type, table, cols);
-        return { adapter, rows };
-      } catch (error) {
-        failures.push(`${table}: ${error.message}`);
-        if (TABLE_MAP[type]) throw error;
-      }
+  async function loadDB() {
+    const next = emptyDB();
+    for (const type of TYPES) {
+      next[type] = (await fetchTableRows(type)).map(row => fromRemote(type, row));
     }
-    throw Error(
-      `Não foi possível identificar a tabela de ${type}. ` +
-      (failures.join(" | ") || `Nomes tentados: ${candidates.join(", ")}`) +
-      " Confira o esquema e as políticas de leitura no Supabase."
-    );
-  }
-
-  function fromRemote(type, raw) {
-    const adapter = adapters[type];
-    const data = adapter.json && raw[adapter.json] &&
-      typeof raw[adapter.json] === "object" && !Array.isArray(raw[adapter.json])
-      ? clone(raw[adapter.json]) : {};
-    const known = new Set(["id", adapter.json, ...Object.values(adapter.fields)]);
-    for (const [field, col] of Object.entries(adapter.fields)) {
-      if (field !== "id" && Object.hasOwn(raw, col)) {
-        // Colunas normais sobrepõem dados do JSON para manter FKs atuais.
-        data[field] = raw[col] ?? "";
-      }
-    }
-    for (const [key, value] of Object.entries(raw)) {
-      if (!known.has(key) && !AUTO_FIELDS.has(key)) {
-        data[key] = value;
-      }
-    }
-    data.id = String(raw.id);
-    return data;
-  }
-
-  function toRemote(type, row) {
-    const adapter = adapters[type];
-    if (!adapter) throw Error(`Tabela de ${type} não configurada.`);
-    if (!row || typeof row.id !== "string" || !row.id) {
-      throw Error(`ID inválido em ${type}.`);
-    }
-    const output = { id: row.id };
-    const payload = {};
-    const derived = type === "contracts"
-      ? new Set(["empresa", "cnpj"])
-      : ["payments", "pendencias"].includes(type)
-        ? new Set(["empresa", "cnpj", "numero", "processo"])
-        : new Set();
-    for (const [field, value] of Object.entries(row)) {
-      if (field === "id" || AUTO_FIELDS.has(field)) continue;
-      if (derived.has(field) && !adapter.fields[field] && !adapter.json) continue;
-      const col = adapter.fields[field] || (adapter.names.has(field) ? field : null);
-      if (adapter.json) payload[field] = value;
-      if (!col) {
-        if (!adapter.json && value !== "" && value !== null && value !== undefined) {
-          throw Error(`Campo "${field}" em ${type} não existe na tabela ${adapter.table}. Nenhum dado foi descartado.`);
-        }
-        continue;
-      }
-      let valueToSave = value;
-      if (value === "" && [
-        "valor", ...moneyFields, ...integerFields,
-        "vigenciaInicial", "vigenciaFinal", "data", "vencimento"
-      ].includes(field)) valueToSave = null;
-      if (Object.hasOwn(output, col) && output[col] !== valueToSave) {
-        throw Error(`Campos incompatíveis compartilham a coluna ${col}.`);
-      }
-      output[col] = valueToSave;
-    }
-    if (adapter.json) output[adapter.json] = payload;
-    return output;
-  }
-
-  async function loadDB(first = false) {
-    const state = emptyDB();
-    if (first) {
-      // O endpoint OpenAPI da raiz pode responder 403 para chaves publicáveis.
-      // Não o utilizamos como teste de conexão ou pré-requisito do cadastro.
-      const temp = {};
-      const raw = {};
-      for (const type of TYPES) {
-        const found = await detectAdapter(type, null);
-        temp[type] = found.adapter;
-        raw[type] = found.rows;
-      }
-      Object.assign(adapters, temp);
-      for (const type of TYPES) state[type] = raw[type].map(row => fromRemote(type, row));
-    } else {
-      for (const type of TYPES) {
-        state[type] = (await fetchTableRows(adapters[type].table))
-          .map(row => fromRemote(type, row));
-      }
-    }
-    return state;
+    return next;
   }
 
   function changesBetween(previous, next) {
@@ -476,9 +383,7 @@
       for (const [id, row] of newRows) {
         const old = oldRows.get(id);
         if (!old) actions.push({ kind: "insert", type, row });
-        else if (JSON.stringify(old) !== JSON.stringify(row)) {
-          actions.push({ kind: "update", type, row, old });
-        }
+        else if (JSON.stringify(old) !== JSON.stringify(row)) actions.push({ kind: "update", type, row, old });
       }
       for (const [id, row] of oldRows) {
         if (!newRows.has(id)) actions.push({ kind: "delete", type, row });
@@ -493,24 +398,15 @@
   }
 
   async function runAction(action) {
-    const adapter = adapters[action.type];
     const id = action.row.id;
-    const query = action.kind === "insert" ? {} : { id: `eq.${id}` };
-    const body = action.kind === "delete" ? undefined : toRemote(action.type, action.row);
-    if (action.kind === "update") {
-      const previous = toRemote(action.type, action.old || action.row);
-      for (const col of Object.keys(previous)) {
-        if (col !== "id" && !Object.hasOwn(body, col)) body[col] = null;
-      }
-    }
-    const result = await request(adapter.table, query, {
-      method: action.kind === "insert" ? "POST" :
-        action.kind === "update" ? "PATCH" : "DELETE",
-      ...(body === undefined ? {} : { body }),
-      prefer: "return=representation"
-    });
-    if (!Array.isArray(result) || result.length !== 1 || String(result[0]?.id) !== id) {
-      throw Error(`A operação ${action.kind} em ${adapter.table} não confirmou 1 registro (ID ${id}). Verifique RLS/SELECT.`);
+    let body = action.kind === "delete" ? undefined : toRemote(action.type, action.row);
+    const method = action.kind === "insert" ? "POST" : action.kind === "update" ? "PATCH" : "DELETE";
+    const results = await request(action.type,
+      method === "POST" ? {} : { id: `eq.${id}` },
+      { method, ...(body === undefined ? {} : { body }), prefer: "return=representation" }
+    );
+    if (!Array.isArray(results) || results.length !== 1 || String(results[0]?.id) !== id) {
+      throw Error(`O Supabase não confirmou exatamente 1 registro em ${TABLES[action.type].name} (${id}). Confirme SELECT e RLS.`);
     }
   }
 
@@ -526,14 +422,13 @@
       return false;
     }
     if (busy) {
-      toast("Uma gravação está em andamento. Tente novamente.");
+      toast("Outra gravação está em andamento.");
       return false;
     }
     busy = true;
     const operations = changesBetween(db, next);
     const applied = [];
     try {
-      // Evita sobrescrever mudanças feitas em outra aba/dispositivo.
       const fresh = await loadDB();
       const snapshot = state => TYPES.map(type => JSON.stringify(
         state[type].map(row => Object.keys(row).sort().map(key => [key, row[key]]))
@@ -543,12 +438,9 @@
       if (snapshot(fresh) !== snapshot(db)) {
         db = fresh;
         renderAll();
-        throw Error("Os dados mudaram no Supabase desde a última leitura. Tela atualizada; revise a operação.");
+        throw Error("Os dados foram alterados no Supabase. Tela atualizada; revise antes de gravar.");
       }
-      // Antes de qualquer gravação, confirme que TODOS os campos podem ser persistidos.
-      for (const op of operations) {
-        if (op.kind !== "delete") toRemote(op.type, op.row);
-      }
+      for (const op of operations) if (op.kind !== "delete") toRemote(op.type, op.row);
       for (const op of operations) {
         await runAction(op);
         applied.push(op);
@@ -557,19 +449,17 @@
       renderAll();
       return true;
     } catch (error) {
-      console.error("Falha de persistência no Supabase", error);
+      console.error("Falha ao gravar no Supabase", error);
       let rollbackError = null;
       for (const op of applied.reverse()) {
         try { await runAction(inverseAction(op)); }
-        catch (err) { rollbackError = err; console.error("Falha ao reverter alteração", err); }
+        catch (err) { rollbackError = err; console.error("Falha de compensação", err); }
       }
-      try {
-        db = await loadDB();
-        renderAll();
-      } catch (err) { rollbackError = err; }
+      try { db = await loadDB(); renderAll(); }
+      catch (err) { rollbackError = err; }
       if (rollbackError) {
         storageLocked = true;
-        toast("Falha parcial: banco requer conferência manual. Gravações bloqueadas.");
+        toast("Falha parcial: confira o banco. Gravações bloqueadas.");
       } else {
         toast(`Não foi possível salvar: ${explainError(error)}`);
       }
@@ -2658,7 +2548,7 @@
 
   async function init() {
     try {
-      db = await loadDB(true);
+      db = await loadDB();
       remoteLoaded = true;
       storageLocked = false;
       document.getElementById("cafSupabaseError")?.remove();
